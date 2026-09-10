@@ -82,8 +82,12 @@ exports.register = async (req, res) => {
           name: user.name,
           email: user.email,
           role: user.role,
-          grade: user.grade,
-          subject: user.subject,
+          grade: user.grade || '',
+          grades: user.grades || [],
+          subject: user.subject || '',
+          subjects: user.subjects || [],
+          department: user.department || '',
+          teacherId: user.teacherId || '',
           isVerified: user.isVerified,
         },
       });
@@ -197,7 +201,11 @@ exports.login = async (req, res) => {
         email: user.email,
         role: user.role,
         grade: user.grade || '',
+        grades: user.grades || [],
         subject: user.subject || '',
+        subjects: user.subjects || [],
+        department: user.department || '',
+        teacherId: user.teacherId || '',
         isVerified: user.isVerified,
       },
     });
@@ -268,10 +276,12 @@ exports.forgotPassword = async (req, res) => {
       });
     }
 
+    console.log(`🔑 [Password Reset Token for ${email}]: ${resetToken}`);
+
     res.status(200).json({
       success: true,
-      message: 'Password reset link generated successfully! (Check response/console for token).',
-      resetToken, // Returned in API response for easy testing in frontend
+      message: 'Password reset link/token generated. Check your email or server console.',
+      resetToken: process.env.NODE_ENV === 'production' ? undefined : resetToken,
     });
   } catch (error) {
     console.error('Forgot Password Error:', error);

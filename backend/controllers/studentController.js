@@ -1,4 +1,5 @@
 const Lesson = require('../models/Lesson');
+const User = require('../models/User');
 const Homework = require('../models/Homework');
 const Quiz = require('../models/Quiz');
 const memoryStore = require('../utils/memoryStore');
@@ -13,24 +14,31 @@ exports.getStudentDashboardData = async (req, res) => {
     let lessonsList = [];
     let hwList = [];
     let quizList = [];
+    const studentGrade = req.user?.grade || 'Grade 4';
 
     try {
-      lessonsList = await Lesson.find().sort({ createdAt: -1 });
-      hwList = await Homework.find().sort({ createdAt: -1 });
-      quizList = await Quiz.find().sort({ createdAt: -1 });
+      lessonsList = await Lesson.find({ grade: studentGrade }).sort({ createdAt: -1 });
+      hwList = await Homework.find({ grade: studentGrade }).sort({ createdAt: -1 });
+      quizList = await Quiz.find({ grade: studentGrade }).sort({ createdAt: -1 });
     } catch (e) {
-      lessonsList = memoryStore.lessons;
-      hwList = memoryStore.homeworks;
-      quizList = memoryStore.quizzes;
+      lessonsList = memoryStore.lessons.filter((l) => l.grade === studentGrade);
+      hwList = memoryStore.homeworks.filter((h) => h.grade === studentGrade);
+      quizList = memoryStore.quizzes.filter((q) => q.grade === studentGrade);
     }
 
-    if (!lessonsList.length) lessonsList = memoryStore.lessons;
-    if (!hwList.length) hwList = memoryStore.homeworks;
-    if (!quizList.length) quizList = memoryStore.quizzes;
+    if (!lessonsList.length) lessonsList = memoryStore.lessons.filter((l) => l.grade === studentGrade);
+    if (!hwList.length) hwList = memoryStore.homeworks.filter((h) => h.grade === studentGrade);
+    if (!quizList.length) quizList = memoryStore.quizzes.filter((q) => q.grade === studentGrade);
+
+    let attendanceLog = [];
+    try {
+      const Attendance = require('../models/Attendance');
+      attendanceLog = await Attendance.find({ student: req.user?._id || req.user?.id }).sort({ date: -1 }).limit(10);
+    } catch (e) {}
 
     const studentProfile = {
       name: req.user?.name || 'Leo Vance',
-      grade: req.user?.grade || 'Grade 4',
+      grade: studentGrade,
       streak: req.user?.streak || 5,
       stars: req.user?.stars || 140,
       coins: req.user?.coins || 250,
@@ -43,6 +51,7 @@ exports.getStudentDashboardData = async (req, res) => {
       lessons: lessonsList,
       homeworks: hwList,
       quizzes: quizList,
+      attendance: attendanceLog,
       achievements: memoryStore.achievements,
       bookmarks: memoryStore.bookmarks,
     });
@@ -190,6 +199,28 @@ exports.submitQuiz = async (req, res) => {
 
     const scorePercentage = Math.round((correctCount / totalQuestions) * 100);
 
+    // Save to student's quizResults in MongoDB
+    if (req.user && req.user._id) {
+      try {
+        const student = await User.findById(req.user._id);
+        if (student) {
+          student.quizResults = student.quizResults || [];
+          student.quizResults.push({
+            quizId: quiz._id || quiz.id,
+            quizTitle: quiz.title,
+            subject: quiz.subject,
+            score: scorePercentage,
+            correctCount,
+            totalQuestions,
+            weakConcepts: weakTopics.length ? weakTopics : []
+          });
+          await student.save();
+        }
+      } catch (saveErr) {
+        console.error('Error saving student quiz results:', saveErr.message);
+      }
+    }
+
     const weaknessAnalysis = await aiService.detectWeakTopicsAndGaps({ quizAverage: scorePercentage });
     const forecast = await aiService.predictPerformanceAndTrend({ quizAverage: scorePercentage });
 
@@ -237,7 +268,17 @@ exports.toggleBookmark = async (req, res) => {
 // @access  Private (Student)
 exports.getStudentAiForecast = async (req, res) => {
   try {
-    const history = { quizAverage: 92, homeworkCompletion: 95, studentName: req.user?.name || 'Leo Vance' };
+    const quizResults = req.user?.quizResults || [];
+    const quizAvg = quizResults.length > 0
+      ? Math.round(quizResults.reduce((acc, q) => acc + (q.score || 0), 0) / quizResults.length)
+      : 88;
+
+    const history = {
+      quizAverage: quizAvg,
+      homeworkCompletion: 92,
+      studentName: req.user?.name || 'Student',
+      studentId: req.user?._id || req.user?.id,
+    };
     const forecast = await aiService.predictPerformanceAndTrend(history);
     const weakness = await aiService.detectWeakTopicsAndGaps(history);
 

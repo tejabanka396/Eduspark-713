@@ -38,6 +38,10 @@ const homeworkSchema = new mongoose.Schema(
       type: Number,
       default: 100,
     },
+    teacherId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
     teacherName: {
       type: String,
       default: 'Prof. John Keating',

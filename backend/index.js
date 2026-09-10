@@ -9,6 +9,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const teacherRoutes = require('./routes/teacherRoutes');
 const studentRoutes = require('./routes/studentRoutes');
 const parentRoutes = require('./routes/parentRoutes');
+const aiRoutes = require('./routes/aiRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -23,6 +24,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/teacher', teacherRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api/parent', parentRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Health Check
 app.get('/api/health', (req, res) => {
@@ -42,16 +44,20 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Ensure backend server starts ONLY after MongoDB has connected successfully
+// Start server and handle MongoDB connection gracefully
 const startServer = async () => {
   try {
     await connectDB();
-    app.listen(PORT, () => {
-      console.log(`🚀 EduSpark AI Backend Server running on http://localhost:${PORT}`);
-    });
+    console.log('✅ Connected to MongoDB Atlas.');
   } catch (error) {
-    console.error('❌ Server startup aborted because MongoDB connection failed.');
+    console.warn('⚠️ MongoDB Atlas connection notice:', error.message || error);
+    console.warn('⚡ Running in resilient fallback / offline demo mode using memoryStore.');
+    console.warn('👉 To connect MongoDB Atlas: Whitelist your IP in Atlas Network Access (0.0.0.0/0 for dev).');
   }
+
+  app.listen(PORT, () => {
+    console.log(`🚀 EduSpark AI Backend Server running on http://localhost:${PORT}`);
+  });
 };
 
 startServer();

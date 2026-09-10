@@ -34,7 +34,21 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    grades: [{
+      type: String,
+    }],
     subject: {
+      type: String,
+      default: '',
+    },
+    subjects: [{
+      type: String,
+    }],
+    department: {
+      type: String,
+      default: '',
+    },
+    teacherId: {
       type: String,
       default: '',
     },
@@ -42,10 +56,56 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    assignedClass: {
+      type: String,
+      default: '',
+    },
+    parentName: {
+      type: String,
+      default: '',
+    },
+    linkedStudent: {
+      type: String,
+      default: '',
+    },
+    linkedStudentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    children: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+    stars: {
+      type: Number,
+      default: 100,
+    },
+    coins: {
+      type: Number,
+      default: 200,
+    },
+    streak: {
+      type: Number,
+      default: 1,
+    },
     isVerified: {
       type: Boolean,
       default: true,
     },
+    quizResults: [
+      {
+        quizId: { type: mongoose.Schema.Types.ObjectId, ref: 'Quiz' },
+        quizTitle: String,
+        subject: String,
+        score: Number, // Percentage score
+        correctCount: Number,
+        totalQuestions: Number,
+        weakConcepts: [String],
+        takenAt: { type: Date, default: Date.now }
+      }
+    ],
     verificationToken: String,
     resetPasswordToken: String,
     resetPasswordExpires: Date,

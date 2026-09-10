@@ -69,16 +69,38 @@ export const TeacherDashboard: React.FC = () => {
   const [aiQuizData, setAiQuizData] = useState<any>({
     grade: 'Grade 4',
     subject: 'Mathematics',
-    topic: 'Fractions & Decimals',
+    chapter: 'Chapter 1',
+    topic: 'Quadratic Equations',
     difficulty: 'Medium',
+    questionType: 'mixed',
     numberOfQuestions: 4,
+    totalMarks: 10,
+    sourceMaterialName: '',
+    sourceMaterialText: '',
   });
   const [isGeneratingQuiz, setIsGeneratingQuiz] = useState<boolean>(false);
+  const [previewQuiz, setPreviewQuiz] = useState<any>(null);
+  const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
+  const [isSavingQuiz, setIsSavingQuiz] = useState<boolean>(false);
+  const [editingQIndex, setEditingQIndex] = useState<number | null>(null);
+  const [editQForm, setEditQForm] = useState<any>({});
+  const [showMaterialInput, setShowMaterialInput] = useState<boolean>(false);
 
-  // Load Data on Mount
+  // Load Data on Mount and Sync Profile Defaults
   useEffect(() => {
     loadAllTeacherData();
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      const defaultSubject = user.subjects && user.subjects.length > 0 ? user.subjects[0] : (user.subject || 'Mathematics');
+      const defaultGrade = user.grades && user.grades.length > 0 ? user.grades[0] : 'Grade 4';
+      
+      setLessonData((prev: any) => ({ ...prev, subject: defaultSubject, grade: defaultGrade }));
+      setHwData((prev: any) => ({ ...prev, subject: defaultSubject, grade: defaultGrade }));
+      setAiQuizData((prev: any) => ({ ...prev, subject: defaultSubject, grade: defaultGrade }));
+    }
+  }, [user]);
 
   const loadAllTeacherData = async () => {
     setIsLoading(true);
@@ -194,24 +216,154 @@ export const TeacherDashboard: React.FC = () => {
     }
   };
 
-  // AI Quiz Generator Submit
+  // AI Quiz Generator Submit (Generate Preview)
   const handleGenerateAiQuiz = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsGeneratingQuiz(true);
     try {
-      const res = await fetchApi<any>('/teacher/quizzes/generate-ai', {
+      const res = await fetchApi<any>('/ai/quiz/generate', {
         method: 'POST',
-        body: JSON.stringify(aiQuizData),
+        body: JSON.stringify({ ...aiQuizData, saveImmediately: false }),
       });
 
-      if (res.success) {
-        showToast('✨ AI Quiz successfully generated and published!');
-        loadAllTeacherData();
+      if (res.success && res.data) {
+        setPreviewQuiz(res.data);
+        showToast('✨ Quiz preview generated! Review, edit, or regenerate questions before publishing.');
       }
     } catch (err: any) {
       showToast(err.message || 'AI Quiz Generation failed.');
     } finally {
       setIsGeneratingQuiz(false);
+    }
+  };
+
+  // Regenerate Single Question
+  const handleRegenerateQuestion = async (index: number) => {
+    if (!previewQuiz) return;
+    setRegeneratingIndex(index);
+    try {
+      const existingQs = previewQuiz.questions || [];
+      const res = await fetchApi<any>('/teacher/quizzes/regenerate-question', {
+        method: 'POST',
+        body: JSON.stringify({
+          grade: previewQuiz.grade,
+          subject: previewQuiz.subject,
+          chapter: previewQuiz.chapter,
+          topic: previewQuiz.topic,
+          difficulty: previewQuiz.difficulty,
+          questionType: previewQuiz.questionType,
+          existingQuestions: existingQs,
+          sourceMaterialText: aiQuizData.sourceMaterialText,
+        }),
+      });
+
+      if (res.success && res.data) {
+        const updatedQuestions = [...previewQuiz.questions];
+        updatedQuestions[index] = res.data;
+        setPreviewQuiz({ ...previewQuiz, questions: updatedQuestions });
+        showToast(`⚡ Question #${index + 1} regenerated successfully!`);
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to regenerate question.');
+    } finally {
+      setRegeneratingIndex(null);
+    }
+  };
+
+  // Add Question to Preview
+  const handleAddQuestionToPreview = async () => {
+    if (!previewQuiz) return;
+    const nextIdx = previewQuiz.questions.length;
+    setRegeneratingIndex(nextIdx);
+    try {
+      const res = await fetchApi<any>('/teacher/quizzes/regenerate-question', {
+        method: 'POST',
+        body: JSON.stringify({
+          grade: previewQuiz.grade,
+          subject: previewQuiz.subject,
+          chapter: previewQuiz.chapter,
+          topic: previewQuiz.topic,
+          difficulty: previewQuiz.difficulty,
+          questionType: previewQuiz.questionType,
+          existingQuestions: previewQuiz.questions,
+          sourceMaterialText: aiQuizData.sourceMaterialText,
+        }),
+      });
+
+      if (res.success && res.data) {
+        setPreviewQuiz({
+          ...previewQuiz,
+          questions: [...previewQuiz.questions, res.data],
+        });
+        showToast('✨ New question added to quiz!');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to add question.');
+    } finally {
+      setRegeneratingIndex(null);
+    }
+  };
+
+  // Start Inline Editing Question
+  const handleStartEditQuestion = (index: number) => {
+    setEditingQIndex(index);
+    setEditQForm({ ...previewQuiz.questions[index] });
+  };
+
+  // Save Inline Edit Question
+  const handleSaveEditQuestion = (index: number) => {
+    const updated = [...previewQuiz.questions];
+    updated[index] = editQForm;
+    setPreviewQuiz({ ...previewQuiz, questions: updated });
+    setEditingQIndex(null);
+    showToast('Question updated!');
+  };
+
+  // Delete Question from Preview
+  const handleDeleteQuestionFromPreview = (index: number) => {
+    const updated = previewQuiz.questions.filter((_: any, i: number) => i !== index);
+    setPreviewQuiz({ ...previewQuiz, questions: updated });
+    showToast('Question removed from preview.');
+  };
+
+  // Save / Publish Final Quiz
+  const handlePublishQuiz = async () => {
+    if (!previewQuiz || !previewQuiz.questions || !previewQuiz.questions.length) {
+      showToast('Quiz must have at least 1 question.');
+      return;
+    }
+    setIsSavingQuiz(true);
+    try {
+      const res = await fetchApi<any>('/teacher/quizzes/save', {
+        method: 'POST',
+        body: JSON.stringify(previewQuiz),
+      });
+
+      if (res.success) {
+        showToast('✨ AI Quiz successfully published and assigned to students!');
+        setPreviewQuiz(null);
+        loadAllTeacherData();
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to publish quiz.');
+    } finally {
+      setIsSavingQuiz(false);
+    }
+  };
+
+  // Delete Published Quiz
+  const handleDeleteQuiz = async (quizId: string) => {
+    if (!window.confirm('Delete this published quiz?')) return;
+    try {
+      const res = await fetchApi<any>(`/teacher/quizzes/${quizId}`, {
+        method: 'DELETE',
+      });
+      if (res.success) {
+        showToast('Quiz deleted.');
+        loadAllTeacherData();
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete quiz.');
     }
   };
 
@@ -246,7 +398,11 @@ export const TeacherDashboard: React.FC = () => {
 
           <div className="text-right hidden sm:block">
             <p className="text-sm font-extrabold text-slate-800">{user?.name}</p>
-            <p className="text-xs text-indigo-600 font-bold">{user?.subject || 'Mathematics & Science'}</p>
+            <p className="text-xs text-indigo-600 font-bold">
+              {user?.subjects && user.subjects.length > 0
+                ? user.subjects.join(' & ')
+                : (user?.subject || 'Mathematics & Science')}
+            </p>
           </div>
           <button
             onClick={logout}
@@ -541,83 +697,184 @@ export const TeacherDashboard: React.FC = () => {
           <div className="space-y-8">
             <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-pink-500 text-white p-6 sm:p-8 rounded-3xl shadow-lg">
               <div className="flex items-center gap-2 mb-2 text-amber-100 text-xs font-bold uppercase tracking-wider">
-                <Sparkles className="w-4 h-4" /> Automatic AI Assessment Generation
+                <Sparkles className="w-4 h-4" /> Subject-Specific AI Assessment Engine
               </div>
               <h2 className="text-2xl sm:text-3xl font-black mb-2">AI Quiz Generator ⚡</h2>
               <p className="text-amber-50 text-sm max-w-xl">
-                Enter your Grade, Subject, Topic, and Difficulty. AI automatically generates MCQs, Fill-in-the-blanks, True/False, and Short Answers with full Answer Keys!
+                Generate highly targeted, non-repetitive subject quizzes. AI analyzes your Subject, Chapter, Topic, and optional Study Material to build custom MCQs, True/False, Fill-in-the-blanks, and Short Answer questions!
               </p>
             </div>
 
             {/* AI Generator Form */}
-            <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm max-w-2xl mx-auto">
+            <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm max-w-3xl mx-auto">
+              <h3 className="text-lg font-black text-slate-900 mb-4 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-amber-500" /> Quiz Configuration
+              </h3>
               <form onSubmit={handleGenerateAiQuiz} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Grade Level</label>
-                    <select
-                      value={aiQuizData.grade}
-                      onChange={(e) => setAiQuizData({ ...aiQuizData, grade: e.target.value })}
-                      className="w-full p-3 rounded-xl border border-slate-200 text-sm"
-                    >
-                      <option value="Grade 1">Grade 1</option>
-                      <option value="Grade 2">Grade 2</option>
-                      <option value="Grade 3">Grade 3</option>
-                      <option value="Grade 4">Grade 4</option>
-                      <option value="Grade 5">Grade 5</option>
-                      <option value="Grade 6">Grade 6</option>
-                    </select>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Class / Grade Level</label>
+                    {user?.grades && user.grades.length > 0 ? (
+                      <select
+                        value={aiQuizData.grade}
+                        onChange={(e) => setAiQuizData({ ...aiQuizData, grade: e.target.value })}
+                        className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
+                        required
+                      >
+                        {user.grades.map((g: string) => (
+                          <option key={g} value={g}>{g}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <select
+                        value={aiQuizData.grade}
+                        onChange={(e) => setAiQuizData({ ...aiQuizData, grade: e.target.value })}
+                        className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
+                      >
+                        <option value="Grade 1">Grade 1</option>
+                        <option value="Grade 2">Grade 2</option>
+                        <option value="Grade 3">Grade 3</option>
+                        <option value="Grade 4">Grade 4</option>
+                        <option value="Grade 5">Grade 5</option>
+                        <option value="Grade 6">Grade 6</option>
+                        <option value="Grade 7">Grade 7</option>
+                        <option value="Grade 8">Grade 8</option>
+                        <option value="Grade 9">Grade 9</option>
+                        <option value="Grade 10">Grade 10</option>
+                        <option value="Grade 11">Grade 11</option>
+                        <option value="Grade 12">Grade 12</option>
+                      </select>
+                    )}
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Subject</label>
+                    {user?.subjects && user.subjects.length > 0 ? (
+                      <select
+                        value={aiQuizData.subject}
+                        onChange={(e) => setAiQuizData({ ...aiQuizData, subject: e.target.value })}
+                        className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
+                        required
+                      >
+                        {user.subjects.map((s: string) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={aiQuizData.subject}
+                        onChange={(e) => setAiQuizData({ ...aiQuizData, subject: e.target.value })}
+                        placeholder="e.g. Mathematics, Physics, Biology, Java"
+                        className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
+                        required
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Chapter Name / No.</label>
                     <input
                       type="text"
-                      value={aiQuizData.subject}
-                      onChange={(e) => setAiQuizData({ ...aiQuizData, subject: e.target.value })}
-                      className="w-full p-3 rounded-xl border border-slate-200 text-sm"
+                      value={aiQuizData.chapter}
+                      onChange={(e) => setAiQuizData({ ...aiQuizData, chapter: e.target.value })}
+                      placeholder="e.g. Chapter 4: Equations"
+                      className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Topic Name</label>
+                    <input
+                      type="text"
+                      value={aiQuizData.topic}
+                      onChange={(e) => setAiQuizData({ ...aiQuizData, topic: e.target.value })}
+                      placeholder="e.g. Quadratic Equations, Photosynthesis, Java Classes"
+                      className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
                       required
                     />
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Topic Name</label>
-                  <input
-                    type="text"
-                    value={aiQuizData.topic}
-                    onChange={(e) => setAiQuizData({ ...aiQuizData, topic: e.target.value })}
-                    placeholder="e.g. Fractions, Multiplication, Photosynthesis"
-                    className="w-full p-3 rounded-xl border border-slate-200 text-sm"
-                    required
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Difficulty</label>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Difficulty Level</label>
                     <select
                       value={aiQuizData.difficulty}
                       onChange={(e) => setAiQuizData({ ...aiQuizData, difficulty: e.target.value })}
-                      className="w-full p-3 rounded-xl border border-slate-200 text-sm"
+                      className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
                     >
-                      <option value="Easy">Easy</option>
-                      <option value="Medium">Medium</option>
-                      <option value="Hard">Hard</option>
+                      <option value="Easy">Easy (Recall & Definitions)</option>
+                      <option value="Medium">Medium (Application)</option>
+                      <option value="Hard">Hard (Complex Reasoning)</option>
                     </select>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Number of Questions</label>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Question Type</label>
+                    <select
+                      value={aiQuizData.questionType}
+                      onChange={(e) => setAiQuizData({ ...aiQuizData, questionType: e.target.value })}
+                      className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
+                    >
+                      <option value="mixed">Mixed Question Types</option>
+                      <option value="mcq">MCQs Only (4 Options)</option>
+                      <option value="true_false">True / False Only</option>
+                      <option value="fill_blank">Fill in the Blank Only</option>
+                      <option value="short">Short Answer Only</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">No. of Questions</label>
                     <input
                       type="number"
                       min="1"
-                      max="10"
+                      max="15"
                       value={aiQuizData.numberOfQuestions}
                       onChange={(e) => setAiQuizData({ ...aiQuizData, numberOfQuestions: Number(e.target.value) })}
-                      className="w-full p-3 rounded-xl border border-slate-200 text-sm"
+                      className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
                     />
                   </div>
+                </div>
+
+                {/* Uploaded Study Material / Paste Notes Section */}
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowMaterialInput(!showMaterialInput)}
+                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                  >
+                    {showMaterialInput ? '➖ Hide Source Study Material' : '➕ Attach Study Notes / Textbook Material (Optional)'}
+                  </button>
+
+                  {showMaterialInput && (
+                    <div className="mt-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Source File / Chapter Name</label>
+                        <input
+                          type="text"
+                          value={aiQuizData.sourceMaterialName}
+                          onChange={(e) => setAiQuizData({ ...aiQuizData, sourceMaterialName: e.target.value })}
+                          placeholder="e.g. Unit_3_Photosynthesis_Notes.pdf"
+                          className="w-full p-2.5 rounded-xl border border-slate-200 text-xs bg-white focus:outline-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Source Material Text / Notes</label>
+                        <textarea
+                          rows={4}
+                          value={aiQuizData.sourceMaterialText}
+                          onChange={(e) => setAiQuizData({ ...aiQuizData, sourceMaterialText: e.target.value })}
+                          placeholder="Paste study guide text, textbook excerpt, or notes here..."
+                          className="w-full p-2.5 rounded-xl border border-slate-200 text-xs bg-white focus:outline-indigo-500"
+                        ></textarea>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <button
@@ -626,38 +883,268 @@ export const TeacherDashboard: React.FC = () => {
                   className="w-full py-4 bg-gradient-to-r from-amber-500 to-pink-500 text-white font-black rounded-2xl shadow-lg hover:from-amber-600 hover:to-pink-600 transition-all flex items-center justify-center gap-2 cursor-pointer text-sm mt-4"
                 >
                   {isGeneratingQuiz ? (
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Creating your subject-specific quiz...</span>
+                    </div>
                   ) : (
                     <>
-                      <Sparkles className="w-5 h-5" /> Generate & Publish AI Quiz Now
+                      <Sparkles className="w-5 h-5" /> Generate AI Quiz Preview
                     </>
                   )}
                 </button>
               </form>
             </div>
 
+            {/* INTERACTIVE QUIZ PREVIEW COMPONENT */}
+            {previewQuiz && (
+              <div className="bg-indigo-50 border-2 border-indigo-200 p-6 sm:p-8 rounded-3xl space-y-6 shadow-md">
+                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-indigo-200 pb-4">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <span className="px-3 py-1 bg-indigo-600 text-white text-xs font-black rounded-full uppercase">
+                        Draft Preview
+                      </span>
+                      <span className="px-3 py-1 bg-amber-100 text-amber-800 text-xs font-bold rounded-full">
+                        {previewQuiz.subject} • {previewQuiz.grade}
+                      </span>
+                      <span className="px-3 py-1 bg-slate-200 text-slate-700 text-xs font-bold rounded-full">
+                        Ch: {previewQuiz.chapter}
+                      </span>
+                      <span className="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full">
+                        Difficulty: {previewQuiz.difficulty}
+                      </span>
+                    </div>
+                    <h3 className="text-2xl font-black text-slate-900">{previewQuiz.title}</h3>
+                    {previewQuiz.sourceMaterialName && (
+                      <p className="text-xs text-indigo-700 font-bold mt-1">
+                        📄 Questions generated from: <span className="underline">{previewQuiz.sourceMaterialName}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleAddQuestionToPreview}
+                      disabled={regeneratingIndex !== null}
+                      className="px-4 py-2 bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-100 font-bold rounded-xl text-xs flex items-center gap-1 cursor-pointer"
+                    >
+                      ➕ Add Question
+                    </button>
+                    <button
+                      onClick={() => setPreviewQuiz(null)}
+                      className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
+                    >
+                      Discard Draft
+                    </button>
+                  </div>
+                </div>
+
+                {/* Question List Preview */}
+                <div className="space-y-4">
+                  {previewQuiz.questions?.map((q: any, idx: number) => (
+                    <div key={idx} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                      {editingQIndex === idx ? (
+                        /* Inline Edit Question Form */
+                        <div className="space-y-3">
+                          <p className="text-xs font-bold text-slate-500 uppercase">Editing Question #{idx + 1}</p>
+                          <textarea
+                            rows={2}
+                            value={editQForm.question}
+                            onChange={(e) => setEditQForm({ ...editQForm, question: e.target.value })}
+                            className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-bold"
+                          ></textarea>
+
+                          {editQForm.type === 'mcq' && (
+                            <div className="grid grid-cols-2 gap-2">
+                              {editQForm.options?.map((opt: string, optIdx: number) => (
+                                <input
+                                  key={optIdx}
+                                  type="text"
+                                  value={opt}
+                                  onChange={(e) => {
+                                    const opts = [...editQForm.options];
+                                    opts[optIdx] = e.target.value;
+                                    setEditQForm({ ...editQForm, options: opts });
+                                  }}
+                                  className="p-2 border border-slate-200 rounded-lg text-xs"
+                                />
+                              ))}
+                            </div>
+                          )}
+
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase">Correct Answer</label>
+                            <input
+                              type="text"
+                              value={editQForm.correctAnswer}
+                              onChange={(e) => setEditQForm({ ...editQForm, correctAnswer: e.target.value })}
+                              className="w-full p-2 border border-slate-200 rounded-lg text-xs font-bold text-emerald-700"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase">Explanation</label>
+                            <input
+                              type="text"
+                              value={editQForm.explanation}
+                              onChange={(e) => setEditQForm({ ...editQForm, explanation: e.target.value })}
+                              className="w-full p-2 border border-slate-200 rounded-lg text-xs text-slate-600"
+                            />
+                          </div>
+
+                          <div className="flex gap-2 justify-end">
+                            <button
+                              onClick={() => handleSaveEditQuestion(idx)}
+                              className="px-3 py-1.5 bg-emerald-600 text-white font-bold text-xs rounded-lg"
+                            >
+                              Save Changes
+                            </button>
+                            <button
+                              onClick={() => setEditingQIndex(null)}
+                              className="px-3 py-1.5 bg-slate-200 text-slate-700 font-bold text-xs rounded-lg"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        /* Standard Question View */
+                        <div>
+                          <div className="flex items-start justify-between gap-4 mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-800 font-black text-xs flex items-center justify-center">
+                                Q{idx + 1}
+                              </span>
+                              <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold uppercase rounded-md border border-slate-200">
+                                {q.type}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleRegenerateQuestion(idx)}
+                                disabled={regeneratingIndex !== null}
+                                title="Regenerate this specific question"
+                                className="px-3 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold rounded-lg text-xs flex items-center gap-1 cursor-pointer transition-all"
+                              >
+                                {regeneratingIndex === idx ? (
+                                  <div className="w-3.5 h-3.5 border-2 border-amber-700 border-t-transparent rounded-full animate-spin"></div>
+                                ) : (
+                                  <>⚡ Regenerate</>
+                                )}
+                              </button>
+
+                              <button
+                                onClick={() => handleStartEditQuestion(idx)}
+                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs cursor-pointer"
+                              >
+                                ✏️ Edit
+                              </button>
+
+                              <button
+                                onClick={() => handleDeleteQuestionFromPreview(idx)}
+                                className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-xs cursor-pointer"
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </div>
+
+                          <h4 className="font-extrabold text-slate-900 text-sm mb-2">{q.question}</h4>
+
+                          {/* Options display */}
+                          {q.options && q.options.length > 0 && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 my-2">
+                              {q.options.map((opt: string, optIdx: number) => {
+                                const isCorrect = opt.trim().toLowerCase() === q.correctAnswer.trim().toLowerCase();
+                                return (
+                                  <div
+                                    key={optIdx}
+                                    className={`p-2.5 rounded-xl text-xs font-semibold border ${
+                                      isCorrect
+                                        ? 'bg-emerald-50 text-emerald-900 border-emerald-300 font-bold'
+                                        : 'bg-slate-50 text-slate-700 border-slate-200'
+                                    }`}
+                                  >
+                                    {String.fromCharCode(65 + optIdx)}. {opt} {isCorrect && '✓'}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          <div className="mt-2 pt-2 border-t border-slate-100 text-xs">
+                            <span className="font-bold text-emerald-700">Answer: {q.correctAnswer}</span>
+                            {q.explanation && <p className="text-slate-500 mt-0.5">💡 {q.explanation}</p>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="pt-2 flex justify-end gap-4">
+                  <button
+                    onClick={handlePublishQuiz}
+                    disabled={isSavingQuiz || !previewQuiz.questions.length}
+                    className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-black rounded-2xl shadow-lg hover:from-emerald-600 hover:to-teal-700 transition-all flex items-center justify-center gap-2 cursor-pointer text-sm"
+                  >
+                    {isSavingQuiz ? (
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    ) : (
+                      <>
+                        <Sparkles className="w-5 h-5" /> Approve & Publish AI Quiz Now
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Published Quizzes List */}
             <div className="space-y-4">
               <h3 className="text-xl font-extrabold text-slate-900">Published Quizzes ({quizzes.length})</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {quizzes.map((q) => (
-                  <div key={q._id || q.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-black">
-                        {q.difficulty} • {q.grade}
-                      </span>
-                      <span className="text-xs text-slate-400 font-semibold">{q.questions?.length || 0} Questions</span>
-                    </div>
-                    <h4 className="font-black text-slate-900 text-lg">{q.title}</h4>
-                    <p className="text-xs text-slate-500 mb-4">Topic: {q.topic}</p>
-
-                    <div className="space-y-2 pt-3 border-t border-slate-100">
-                      {q.questions?.map((ques: any, idx: number) => (
-                        <div key={idx} className="p-3 bg-slate-50 rounded-xl text-xs">
-                          <p className="font-bold text-slate-800">Q{idx + 1}: {ques.question}</p>
-                          <p className="text-emerald-600 font-semibold mt-1">✓ Answer: {ques.correctAnswer}</p>
+                  <div key={q._id || q.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-black">
+                          {q.difficulty || 'Medium'} • {q.grade}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400 font-semibold">{q.questions?.length || 0} Questions</span>
+                          <button
+                            onClick={() => handleDeleteQuiz(q._id || q.id)}
+                            title="Delete Quiz"
+                            className="p-1 text-slate-400 hover:text-rose-600 text-xs cursor-pointer"
+                          >
+                            🗑️
+                          </button>
                         </div>
-                      ))}
+                      </div>
+
+                      <h4 className="font-black text-slate-900 text-lg">{q.title}</h4>
+                      <p className="text-xs text-slate-500 mb-1">
+                        Subject: <span className="font-bold text-slate-700">{q.subject}</span> • Chapter: <span className="font-bold text-slate-700">{q.chapter || 'Ch. 1'}</span>
+                      </p>
+                      <p className="text-xs text-slate-500 mb-3">Topic: <span className="font-bold text-slate-700">{q.topic}</span></p>
+
+                      {q.sourceMaterialName && (
+                        <p className="text-[10px] text-indigo-600 font-bold mb-3">
+                          📄 Questions generated from: {q.sourceMaterialName}
+                        </p>
+                      )}
+
+                      <div className="space-y-2 pt-3 border-t border-slate-100 max-h-60 overflow-y-auto pr-1">
+                        {q.questions?.map((ques: any, idx: number) => (
+                          <div key={idx} className="p-3 bg-slate-50 rounded-xl text-xs">
+                            <p className="font-bold text-slate-800">Q{idx + 1}: {ques.question}</p>
+                            <p className="text-emerald-600 font-semibold mt-1">✓ Answer: {ques.correctAnswer}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -674,67 +1161,87 @@ export const TeacherDashboard: React.FC = () => {
               <p className="text-xs text-slate-500">Individual student learning speed, weak/strong topics, and AI intervention plans</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {analytics.map((st) => (
-                <div key={st.studentId} className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-black uppercase ${
-                          st.riskLevel === 'low'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : st.riskLevel === 'medium'
-                            ? 'bg-amber-100 text-amber-800'
-                            : 'bg-rose-100 text-rose-800'
-                        }`}
-                      >
-                        {st.riskLevel} Risk
-                      </span>
-                      <span className="text-xs font-bold text-slate-500">{st.grade}</span>
-                    </div>
-
-                    <h3 className="text-xl font-black text-slate-900 mb-1">{st.studentName}</h3>
-                    <p className="text-xs text-slate-500 mb-4">Learning Speed: <strong className="text-slate-800">{st.learningSpeed}</strong></p>
-
-                    {/* Progress Metrics */}
-                    <div className="grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-2xl mb-4 text-center">
-                      <div>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">Attendance</p>
-                        <p className="text-base font-black text-slate-900">{st.attendance}%</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">Homework</p>
-                        <p className="text-base font-black text-slate-900">{st.homeworkCompletion}%</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">Quiz Avg</p>
-                        <p className="text-base font-black text-indigo-600">{st.quizAverage}%</p>
-                      </div>
-                    </div>
-
-                    {/* Topics */}
-                    <div className="space-y-2 text-xs mb-4">
-                      <div>
-                        <span className="font-bold text-rose-600">Weak Topics: </span>
-                        <span className="text-slate-700">{st.weakTopics?.join(', ')}</span>
-                      </div>
-                      <div>
-                        <span className="font-bold text-emerald-600">Strong Topics: </span>
-                        <span className="text-slate-700">{st.strongTopics?.join(', ')}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* AI Recommendation Box */}
-                  <div className="p-3 bg-purple-50 border border-purple-200 rounded-2xl text-xs text-purple-900">
-                    <strong className="flex items-center gap-1 text-purple-700 mb-1">
-                      <Sparkles className="w-3.5 h-3.5" /> AI Recommendation:
-                    </strong>
-                    {st.aiRecommendation}
-                  </div>
+            {analytics.length === 0 ? (
+              <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm text-center max-w-lg mx-auto space-y-4">
+                <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto text-2xl">
+                  📊
                 </div>
-              ))}
-            </div>
+                <h3 className="text-lg font-black text-slate-900">No Student Performance Data Available Yet</h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Analytics cards are generated dynamically when students enroll, submit homework assignments, and attempt published quizzes.
+                </p>
+                <div className="p-4 bg-indigo-50/50 rounded-2xl text-[11px] text-indigo-900 border border-indigo-100 text-left space-y-2">
+                  <p className="font-extrabold uppercase text-[9px] tracking-wider text-indigo-700">Next Steps for Teachers:</p>
+                  <ul className="list-disc pl-4 space-y-1 font-medium">
+                    <li>Create and assign homework tasks in the **Homework Module** tab.</li>
+                    <li>Generate and publish structured quizzes in the **AI Quiz Generator** tab.</li>
+                    <li>Students must log in, complete the assignments, and submit their responses.</li>
+                  </ul>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {analytics.map((st) => (
+                  <div key={st.studentId} className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-black uppercase ${
+                            st.riskLevel === 'low'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : st.riskLevel === 'medium'
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-rose-100 text-rose-800'
+                          }`}
+                        >
+                          {st.riskLevel} Risk
+                        </span>
+                        <span className="text-xs font-bold text-slate-500">{st.grade}</span>
+                      </div>
+
+                      <h3 className="text-xl font-black text-slate-900 mb-1">{st.studentName}</h3>
+                      <p className="text-xs text-slate-500 mb-4">Learning Speed: <strong className="text-slate-800">{st.learningSpeed}</strong></p>
+
+                      {/* Progress Metrics */}
+                      <div className="grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-2xl mb-4 text-center">
+                        <div>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase">Attendance</p>
+                          <p className="text-base font-black text-slate-900">{st.attendance}%</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase">Homework</p>
+                          <p className="text-base font-black text-slate-900">{st.homeworkCompletion}%</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase">Quiz Avg</p>
+                          <p className="text-base font-black text-indigo-600">{st.quizAverage}%</p>
+                        </div>
+                      </div>
+
+                      {/* Topics */}
+                      <div className="space-y-2 text-xs mb-4">
+                        <div>
+                          <span className="font-bold text-rose-600">Weak Topics: </span>
+                          <span className="text-slate-700">{st.weakTopics?.join(', ')}</span>
+                        </div>
+                        <div>
+                          <span className="font-bold text-emerald-600">Strong Topics: </span>
+                          <span className="text-slate-700">{st.strongTopics?.join(', ')}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* AI Recommendation Box */}
+                    <div className="p-3 bg-purple-50 border border-purple-200 rounded-2xl text-xs text-purple-900">
+                      <strong className="flex items-center gap-1 text-purple-700 mb-1">
+                        <Sparkles className="w-3.5 h-3.5" /> AI Recommendation:
+                      </strong>
+                      {st.aiRecommendation}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

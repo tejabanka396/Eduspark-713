@@ -39,6 +39,10 @@ const lessonSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    teacherId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
     teacherName: {
       type: String,
       default: 'Prof. John Keating',

@@ -34,7 +34,7 @@ import {
 
 export const AdminDashboard: React.FC = () => {
   const { user, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'teachers' | 'students' | 'parents' | 'classes'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'teachers' | 'students' | 'parents' | 'classes' | 'subjects'>('overview');
 
   // Stats & Analytics State
   const [stats, setStats] = useState<any>(null);
@@ -46,6 +46,7 @@ export const AdminDashboard: React.FC = () => {
   const [students, setStudents] = useState<any[]>([]);
   const [parents, setParents] = useState<any[]>([]);
   const [classes, setClasses] = useState<any[]>([]);
+  const [subjects, setSubjects] = useState<any[]>([]);
 
   // Loading & Filter States
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -53,7 +54,7 @@ export const AdminDashboard: React.FC = () => {
   const [notification, setNotification] = useState<string>('');
 
   // Modal Dialog States
-  const [modalType, setModalType] = useState<'teacher' | 'student' | 'parent' | 'class' | null>(null);
+  const [modalType, setModalType] = useState<'teacher' | 'student' | 'parent' | 'class' | 'subject' | null>(null);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [formData, setFormData] = useState<any>({});
 
@@ -65,12 +66,13 @@ export const AdminDashboard: React.FC = () => {
   const loadAllAdminData = async () => {
     setIsLoading(true);
     try {
-      const [statsRes, teachersRes, studentsRes, parentsRes, classesRes] = await Promise.all([
+      const [statsRes, teachersRes, studentsRes, parentsRes, classesRes, subjectsRes] = await Promise.all([
         fetchApi<any>('/admin/stats').catch(() => null),
         fetchApi<any>('/admin/teachers').catch(() => ({ data: [] })),
         fetchApi<any>('/admin/students').catch(() => ({ data: [] })),
         fetchApi<any>('/admin/parents').catch(() => ({ data: [] })),
         fetchApi<any>('/admin/classes').catch(() => ({ data: [] })),
+        fetchApi<any>('/admin/subjects').catch(() => ({ data: [] })),
       ]);
 
       if (statsRes && statsRes.success) {
@@ -83,6 +85,7 @@ export const AdminDashboard: React.FC = () => {
       setStudents(studentsRes.data || []);
       setParents(parentsRes.data || []);
       setClasses(classesRes.data || []);
+      setSubjects(subjectsRes.data || []);
     } catch (err) {
       console.error('Error fetching admin dashboard data:', err);
     } finally {
@@ -96,7 +99,7 @@ export const AdminDashboard: React.FC = () => {
   };
 
   // Open Add/Edit Modal
-  const openModal = (type: 'teacher' | 'student' | 'parent' | 'class', item: any = null) => {
+  const openModal = (type: 'teacher' | 'student' | 'parent' | 'class' | 'subject', item: any = null) => {
     setModalType(type);
     setEditingItem(item);
     if (item) {
@@ -109,7 +112,9 @@ export const AdminDashboard: React.FC = () => {
           ? { name: '', email: '', password: 'password123', grade: 'Grade 4', assignedClass: 'Grade 4 - Alpha', parentName: '' }
           : type === 'parent'
           ? { name: '', email: '', password: 'password123', phone: '+1 555-0199', linkedStudent: '' }
-          : { name: '', grade: 'Grade 4', section: 'A', room: 'Room 101', teacherName: 'Unassigned', capacity: 30 }
+          : type === 'class'
+          ? { name: '', grade: 'Grade 4', section: 'A', room: 'Room 101', teacherName: 'Unassigned', capacity: 30 }
+          : { name: '', code: '', grade: 'All Grades', description: '', icon: '📚' }
       );
     }
   };
@@ -143,7 +148,7 @@ export const AdminDashboard: React.FC = () => {
   };
 
   // Handle Item Delete
-  const handleDelete = async (type: 'teacher' | 'student' | 'parent' | 'class', id: string) => {
+  const handleDelete = async (type: 'teacher' | 'student' | 'parent' | 'class' | 'subject', id: string) => {
     if (!window.confirm(`Are you sure you want to delete this ${type}?`)) return;
 
     try {
@@ -260,6 +265,16 @@ export const AdminDashboard: React.FC = () => {
             }`}
           >
             <School className="w-4 h-4" /> Classes ({classes.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('subjects')}
+            className={`px-4 py-2 rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
+              activeTab === 'subjects'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" /> Subjects ({subjects.length})
           </button>
         </div>
 
@@ -660,6 +675,69 @@ export const AdminDashboard: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* TAB 6: SUBJECTS MANAGEMENT */}
+        {activeTab === 'subjects' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="relative w-full sm:w-80">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  placeholder="Search subjects..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <button
+                onClick={() => openModal('subject')}
+                className="w-full sm:w-auto px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md"
+              >
+                <Plus className="w-4 h-4" /> Add New Subject
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {subjects
+                .filter((s) => s.name?.toLowerCase().includes(searchTerm.toLowerCase()) || s.code?.toLowerCase().includes(searchTerm.toLowerCase()))
+                .map((s) => (
+                  <div key={s._id || s.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-2xl">{s.icon || '📚'}</span>
+                        <div className="space-x-1">
+                          <button
+                            onClick={() => openModal('subject', s)}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg cursor-pointer"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete('subject', s._id || s.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-extrabold text-slate-900 text-lg">{s.name}</h3>
+                        {s.code && <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono">{s.code}</span>}
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">{s.description || 'Core Curriculum Subject'}</p>
+
+                      <div className="mt-4 pt-3 border-t border-slate-100 text-xs">
+                        <p className="text-slate-600">
+                          <strong className="text-slate-800">Grade Scope:</strong> {s.grade || 'All Grades'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
       </main>
 
       {/* MODAL DIALOG FOR ADD / EDIT */}
@@ -686,7 +764,7 @@ export const AdminDashboard: React.FC = () => {
                 />
               </div>
 
-              {modalType !== 'class' && (
+              {modalType !== 'class' && modalType !== 'subject' && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Email</label>
                   <input
@@ -699,7 +777,7 @@ export const AdminDashboard: React.FC = () => {
                 </div>
               )}
 
-              {!editingItem && modalType !== 'class' && (
+              {!editingItem && modalType !== 'class' && modalType !== 'subject' && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Default Password</label>
                   <input
@@ -724,7 +802,40 @@ export const AdminDashboard: React.FC = () => {
                 </div>
               )}
 
-              {(modalType === 'student' || modalType === 'teacher' || modalType === 'class') && (
+              {modalType === 'subject' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Subject Code</label>
+                    <input
+                      type="text"
+                      value={formData.code || ''}
+                      onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+                      placeholder="e.g. MATH-101"
+                      className="w-full p-3 rounded-xl border border-slate-200 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Icon / Emoji</label>
+                    <input
+                      type="text"
+                      value={formData.icon || '📚'}
+                      onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
+                      className="w-full p-3 rounded-xl border border-slate-200 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Description</label>
+                    <textarea
+                      value={formData.description || ''}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      className="w-full p-3 rounded-xl border border-slate-200 text-sm"
+                      rows={2}
+                    />
+                  </div>
+                </>
+              )}
+
+              {(modalType === 'student' || modalType === 'teacher' || modalType === 'class' || modalType === 'subject') && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Grade Level</label>
                   <select
@@ -732,6 +843,7 @@ export const AdminDashboard: React.FC = () => {
                     onChange={(e) => setFormData({ ...formData, grade: e.target.value })}
                     className="w-full p-3 rounded-xl border border-slate-200 text-sm"
                   >
+                    <option value="All Grades">All Grades</option>
                     <option value="Grade 1">Grade 1</option>
                     <option value="Grade 2">Grade 2</option>
                     <option value="Grade 3">Grade 3</option>

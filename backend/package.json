@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "nodemon index.js",
     "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "node --check index.js",
+    "test": "node --check index.js"
   },
   "keywords": [],
   "author": "",
@@ -14,13 +15,16 @@
   "type": "commonjs",
   "dependencies": {
     "@google-cloud/vision": "^5.3.7",
+    "@google/genai": "^2.16.0",
     "@google/generative-ai": "^0.24.1",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.6.2",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.8.0"
+    "mongoose": "^9.8.0",
+    "multer": "^2.2.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

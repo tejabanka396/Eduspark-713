@@ -19,6 +19,10 @@ const {
   createClass,
   updateClass,
   deleteClass,
+  getSubjects,
+  createSubject,
+  updateSubject,
+  deleteSubject,
 } = require('../controllers/adminController');
 
 // All routes require authenticated user with role 'admin'
@@ -43,5 +47,9 @@ router.route('/parents/:id').put(updateParent).delete(deleteParent);
 // Class CRUD
 router.route('/classes').get(getClasses).post(createClass);
 router.route('/classes/:id').put(updateClass).delete(deleteClass);
+
+// Subject CRUD
+router.route('/subjects').get(getSubjects).post(createSubject);
+router.route('/subjects/:id').put(updateSubject).delete(deleteSubject);
 
 module.exports = router;

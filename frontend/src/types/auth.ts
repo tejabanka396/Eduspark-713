@@ -9,6 +9,8 @@ export interface User {
   subject?: string;
   phone?: string;
   isVerified?: boolean;
+  subjects?: string[];
+  grades?: string[];
 }
 
 export interface AuthResponse {

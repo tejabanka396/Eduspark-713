@@ -47,6 +47,7 @@ export const StudentDashboard: React.FC = () => {
   // OCR Upload State
   const [isScanningOcr, setIsScanningOcr] = useState<boolean>(false);
   const [ocrData, setOcrData] = useState<any>(null);
+  const [ocrFile, setOcrFile] = useState<File | null>(null);
 
   // Homework Answer Submission State
   const [selectedHw, setSelectedHw] = useState<any>(null);
@@ -102,16 +103,21 @@ export const StudentDashboard: React.FC = () => {
     e.preventDefault();
     if (!aiQuery.trim()) return;
     setIsAskingAi(true);
+    setAiHelperResponse(null); // Clear previous response
     try {
-      const res = await fetchApi<any>('/student/ai-helper', {
+      const res = await fetchApi<any>('/ai/tutor', {
         method: 'POST',
-        body: JSON.stringify({ question: aiQuery, grade: profile.grade }),
+        body: JSON.stringify({ question: aiQuery, class: profile.grade }),
       });
       if (res.success) {
-        setAiHelperResponse(res.aiResponse);
+        setAiHelperResponse(res.data);
       }
     } catch (err: any) {
-      showToast('Error asking AI Helper.');
+      showToast(err.message || 'Error asking AI Helper.');
+      setAiHelperResponse({
+        answer: err.message || 'The AI service is temporarily unavailable. Please try again in a moment.',
+        provider: 'System Error'
+      });
     } finally {
       setIsAskingAi(false);
     }
@@ -168,14 +174,22 @@ export const StudentDashboard: React.FC = () => {
 
   // OCR Homework Scanner
   const handleOcrScan = async () => {
+    if (!ocrFile) {
+      showToast('Please select an image file first.');
+      return;
+    }
     setIsScanningOcr(true);
     try {
-      const res = await fetchApi<any>('/student/ocr-scan', {
+      const formData = new FormData();
+      formData.append('image', ocrFile);
+      formData.append('class', profile.grade);
+
+      const res = await fetchApi<any>('/ai/ocr-scan', {
         method: 'POST',
-        body: JSON.stringify({ imageUrl: 'notebook_scan_sample.jpg' }),
+        body: formData,
       });
       if (res.success) {
-        setOcrData(res.ocrResult);
+        setOcrData({ extractedText: res.extractedText, aiSuggestions: res.data.explanation || 'No suggestions.', missingQuestions: [] });
         showToast('OCR scan completed! AI detected handwriting.');
       }
     } catch (err: any) {
@@ -483,19 +497,32 @@ export const StudentDashboard: React.FC = () => {
               <p className="text-emerald-100 text-sm max-w-xl mb-4">
                 Upload a photo of your handwritten notebook. AI reads your handwriting, checks for missing questions, and provides feedback!
               </p>
-              <button
-                onClick={handleOcrScan}
-                disabled={isScanningOcr}
-                className="px-6 py-3 bg-white text-emerald-900 font-black rounded-2xl shadow-md hover:bg-emerald-50 transition-all flex items-center gap-2 cursor-pointer text-xs"
-              >
-                {isScanningOcr ? (
-                  <div className="w-4 h-4 border-2 border-emerald-900 border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                  <>
-                    <Camera className="w-4 h-4 text-emerald-700" /> Scan Notebook Image Now
-                  </>
-                )}
-              </button>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setOcrFile(e.target.files ? e.target.files[0] : null)}
+                  className="text-sm bg-white/20 p-2 rounded-xl border border-emerald-300 text-white file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-white file:text-emerald-800 cursor-pointer"
+                />
+                <button
+                  onClick={handleOcrScan}
+                  disabled={isScanningOcr || !ocrFile}
+                  className={`px-6 py-3 font-black rounded-2xl shadow-md transition-all flex items-center gap-2 cursor-pointer text-xs ${
+                    isScanningOcr || !ocrFile ? 'bg-emerald-200 text-emerald-600 opacity-70' : 'bg-white text-emerald-900 hover:bg-emerald-50'
+                  }`}
+                >
+                  {isScanningOcr ? (
+                    <div className="flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-emerald-900 border-t-transparent rounded-full animate-spin"></div>
+                      <span>Reading your question...</span>
+                    </div>
+                  ) : (
+                    <>
+                      <Camera className="w-4 h-4 text-emerald-700" /> Scan Notebook Image Now
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* OCR Scanner Results Display */}
@@ -594,7 +621,10 @@ export const StudentDashboard: React.FC = () => {
                   className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer text-xs"
                 >
                   {isAskingAi ? (
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>AI Tutor is thinking...</span>
+                    </div>
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4" /> Ask AI Tutor For Hints & Guidance
@@ -610,11 +640,11 @@ export const StudentDashboard: React.FC = () => {
                 <div className="flex items-center gap-2 text-indigo-900 font-extrabold text-sm">
                   <Sparkles className="w-5 h-5 text-indigo-600" /> AI Tutor Hint & Step-by-Step Guide
                 </div>
-                <p className="text-sm font-medium text-indigo-950 bg-white p-4 rounded-2xl border border-indigo-100 leading-relaxed">
-                  {aiHelperResponse.hint}
+                <p className="text-sm font-medium text-indigo-950 bg-white p-4 rounded-2xl border border-indigo-100 leading-relaxed whitespace-pre-line">
+                  {aiHelperResponse.answer}
                 </p>
-                <div className="text-xs text-indigo-700 font-bold flex items-center gap-1.5">
-                  <span>{aiHelperResponse.encouragement}</span>
+                <div className="text-xs text-indigo-700 font-bold flex items-center gap-1.5 mt-2">
+                  <span>Provided by {aiHelperResponse.provider}</span>
                 </div>
               </div>
             )}
@@ -706,12 +736,21 @@ export const StudentDashboard: React.FC = () => {
                 <div key={q._id || q.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
                   <div className="flex items-center justify-between mb-2">
                     <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-black">
-                      {q.difficulty} • {q.grade}
+                      {q.difficulty || 'Medium'} • {q.grade}
                     </span>
                     <span className="text-xs font-bold text-slate-500">{q.questions?.length || 0} Questions</span>
                   </div>
                   <h3 className="font-black text-slate-900 text-lg mb-1">{q.title}</h3>
-                  <p className="text-xs text-slate-500 mb-4">Topic: {q.topic}</p>
+                  <p className="text-xs text-slate-500 mb-1">
+                    Subject: <span className="font-bold text-slate-700">{q.subject}</span> • Chapter: <span className="font-bold text-slate-700">{q.chapter || 'Ch. 1'}</span>
+                  </p>
+                  <p className="text-xs text-slate-500 mb-3">Topic: <span className="font-bold text-slate-700">{q.topic}</span></p>
+
+                  {q.sourceMaterialName && (
+                    <p className="text-[10px] text-indigo-600 font-bold mb-3">
+                      📄 Generated from source: {q.sourceMaterialName}
+                    </p>
+                  )}
 
                   {/* Question Player */}
                   <div className="space-y-3 pt-3 border-t border-slate-100">

@@ -95,7 +95,7 @@ exports.getTeachers = async (req, res) => {
 
 exports.createTeacher = async (req, res) => {
   try {
-    const { name, email, password, subject, grade, assignedClass } = req.body;
+    const { name, email, password, subject, grade, assignedClass, subjects, grades } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ success: false, message: 'Name, email, and password required.' });
     }
@@ -111,6 +111,8 @@ exports.createTeacher = async (req, res) => {
         subject: subject || 'General Primary',
         grade: grade || 'Grade 4',
         assignedClass: assignedClass || '',
+        subjects: subjects || (subject ? [subject] : ['Mathematics']),
+        grades: grades || (grade ? [grade] : ['Grade 4']),
         isVerified: true,
       });
       return res.status(201).json({ success: true, message: 'Teacher created successfully', data: teacher });
@@ -123,6 +125,8 @@ exports.createTeacher = async (req, res) => {
         subject: subject || 'General Primary',
         grade: grade || 'Grade 4',
         assignedClass: assignedClass || '',
+        subjects: subjects || (subject ? [subject] : ['Mathematics']),
+        grades: grades || (grade ? [grade] : ['Grade 4']),
         isVerified: true,
       });
       return res.status(201).json({ success: true, message: 'Teacher created (Demo mode)', data: memoryTeacher });
@@ -135,18 +139,22 @@ exports.createTeacher = async (req, res) => {
 exports.updateTeacher = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, subject, grade, assignedClass } = req.body;
+    const { name, email, subject, grade, assignedClass, subjects, grades } = req.body;
 
     try {
+      const updateData = { name, email, subject, grade, assignedClass };
+      if (subjects) updateData.subjects = subjects;
+      if (grades) updateData.grades = grades;
+      
       const teacher = await User.findByIdAndUpdate(
         id,
-        { name, email, subject, grade, assignedClass },
+        updateData,
         { new: true, runValidators: true }
       );
       if (teacher) return res.status(200).json({ success: true, message: 'Teacher updated', data: teacher });
     } catch (e) {}
 
-    const updated = memoryStore.saveUser({ id, name, email, subject, grade, assignedClass, role: 'teacher' });
+    const updated = memoryStore.saveUser({ id, name, email, subject, grade, assignedClass, role: 'teacher', subjects, grades });
     res.status(200).json({ success: true, message: 'Teacher updated', data: updated });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error updating teacher.' });
@@ -430,5 +438,74 @@ exports.deleteClass = async (req, res) => {
     res.status(200).json({ success: true, message: 'Class deleted successfully.' });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error deleting class.' });
+  }
+};
+
+/* ==========================================
+   SUBJECT MANAGEMENT CRUD
+   ========================================== */
+const SubjectModel = require('../models/Subject');
+
+exports.getSubjects = async (req, res) => {
+  try {
+    let list = [];
+    try {
+      list = await SubjectModel.find();
+    } catch (e) {}
+    if (!list.length) {
+      list = [
+        { _id: 'subj-1', name: 'Mathematics', code: 'MATH-101', grade: 'All Grades', description: 'Core Primary Mathematics', icon: '📐' },
+        { _id: 'subj-2', name: 'Science', code: 'SCI-101', grade: 'All Grades', description: 'General Science & Plants', icon: '🔬' },
+        { _id: 'subj-3', name: 'English Language Arts', code: 'ENG-101', grade: 'All Grades', description: 'Reading, Writing & Grammar', icon: '📖' },
+        { _id: 'subj-4', name: 'Social Studies', code: 'SOC-101', grade: 'All Grades', description: 'History, Geography & Civics', icon: '🌍' },
+      ];
+    }
+    res.status(200).json({ success: true, count: list.length, data: list });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch subjects.' });
+  }
+};
+
+exports.createSubject = async (req, res) => {
+  try {
+    const { name, code, grade, description, icon } = req.body;
+    if (!name) {
+      return res.status(400).json({ success: false, message: 'Subject name is required.' });
+    }
+    try {
+      const newSubject = await SubjectModel.create({ name, code, grade: grade || 'All Grades', description, icon: icon || '📚' });
+      return res.status(201).json({ success: true, message: 'Subject created successfully', data: newSubject });
+    } catch (dbErr) {
+      const fallback = { _id: 'subj-' + Date.now(), name, code, grade: grade || 'All Grades', description, icon: icon || '📚' };
+      return res.status(201).json({ success: true, message: 'Subject created (Demo Mode)', data: fallback });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error creating subject.' });
+  }
+};
+
+exports.updateSubject = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, code, grade, description, icon } = req.body;
+    try {
+      const updated = await SubjectModel.findByIdAndUpdate(id, { name, code, grade, description, icon }, { new: true });
+      if (updated) return res.status(200).json({ success: true, message: 'Subject updated', data: updated });
+    } catch (e) {}
+    res.status(200).json({ success: true, message: 'Subject updated', data: { _id: id, name, code, grade, description, icon } });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error updating subject.' });
+  }
+};
+
+exports.deleteSubject = async (req, res) => {
+  try {
+    const { id } = req.params;
+    try {
+      await SubjectModel.findByIdAndDelete(id);
+    } catch (e) {}
+    res.status(200).json({ success: true, message: 'Subject deleted successfully.' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error deleting subject.' });
   }
 };

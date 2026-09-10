@@ -6,6 +6,8 @@ const questionSchema = new mongoose.Schema({
   options: [String],
   correctAnswer: { type: String, required: true },
   explanation: String,
+  difficulty: { type: String, enum: ['Easy', 'Medium', 'Hard'], default: 'Medium' },
+  marks: { type: Number, default: 1 },
 });
 
 const quizSchema = new mongoose.Schema(
@@ -22,14 +24,30 @@ const quizSchema = new mongoose.Schema(
       type: String,
       default: 'Mathematics',
     },
+    chapter: {
+      type: String,
+      default: 'General',
+    },
     topic: {
       type: String,
-      default: 'Fractions & Decimals',
+      default: 'General Topic',
     },
     difficulty: {
       type: String,
       enum: ['Easy', 'Medium', 'Hard'],
       default: 'Medium',
+    },
+    questionType: {
+      type: String,
+      default: 'mixed',
+    },
+    totalMarks: {
+      type: Number,
+      default: 10,
+    },
+    sourceMaterialName: {
+      type: String,
+      default: '',
     },
     questions: [questionSchema],
     isPublished: {
@@ -43,3 +61,4 @@ const quizSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model('Quiz', quizSchema);
+

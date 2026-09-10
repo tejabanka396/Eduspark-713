@@ -227,4 +227,118 @@ module.exports = {
     }
     return null;
   },
+  saveLesson: (lessonData) => {
+    const id = lessonData.id || lessonData._id || 'lesson-' + Date.now();
+    const newLesson = {
+      _id: id,
+      id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...lessonData,
+    };
+    memoryLessons.unshift(newLesson);
+    return newLesson;
+  },
+  deleteLesson: (id) => {
+    const idx = memoryLessons.findIndex((l) => l.id === id || l._id === id);
+    if (idx >= 0) {
+      const removed = memoryLessons.splice(idx, 1)[0];
+      const bmIdx = memoryBookmarks.indexOf(id);
+      if (bmIdx >= 0) memoryBookmarks.splice(bmIdx, 1);
+      return removed;
+    }
+    return null;
+  },
+  saveHomework: (hwData) => {
+    const id = hwData.id || hwData._id || 'hw-' + Date.now();
+    const newHw = {
+      _id: id,
+      id,
+      createdAt: new Date(),
+      submissions: [],
+      ...hwData,
+    };
+    memoryHomeworks.unshift(newHw);
+    return newHw;
+  },
+  gradeSubmission: (hwId, subId, marksObtained, feedback) => {
+    const hw = memoryHomeworks.find((h) => h.id === hwId || h._id === hwId);
+    if (hw && hw.submissions) {
+      const sub = hw.submissions.find((s) => s.id === subId || s._id === subId);
+      if (sub) {
+        sub.marksObtained = marksObtained;
+        sub.feedback = feedback || '';
+        sub.status = 'graded';
+        return sub;
+      }
+    }
+    return null;
+  },
+  saveQuiz: (quizData) => {
+    const id = quizData.id || quizData._id || 'quiz-' + Date.now();
+    const newQuiz = {
+      _id: id,
+      id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      chapter: quizData.chapter || 'Chapter 1',
+      questionType: quizData.questionType || 'mixed',
+      totalMarks: quizData.totalMarks || (quizData.questions ? quizData.questions.length * 2 : 10),
+      sourceMaterialName: quizData.sourceMaterialName || '',
+      ...quizData,
+    };
+    memoryQuizzes.unshift(newQuiz);
+    return newQuiz;
+  },
+  updateQuiz: (id, quizData) => {
+    const idx = memoryQuizzes.findIndex((q) => q.id === id || q._id === id);
+    if (idx >= 0) {
+      memoryQuizzes[idx] = { ...memoryQuizzes[idx], ...quizData, updatedAt: new Date() };
+      return memoryQuizzes[idx];
+    }
+    return null;
+  },
+  saveClass: (classData) => {
+    const id = classData.id || classData._id || 'class-' + Date.now();
+    const existingIdx = memoryClasses.findIndex((c) => c.id === id || c._id === id);
+    if (existingIdx >= 0) {
+      memoryClasses[existingIdx] = { ...memoryClasses[existingIdx], ...classData };
+      return memoryClasses[existingIdx];
+    }
+    const newClass = {
+      _id: id,
+      id,
+      studentsCount: 0,
+      capacity: 30,
+      room: 'Main Building',
+      teacherName: 'Unassigned',
+      ...classData,
+    };
+    memoryClasses.push(newClass);
+    return newClass;
+  },
+  deleteClass: (id) => {
+    const idx = memoryClasses.findIndex((c) => c.id === id || c._id === id);
+    if (idx >= 0) return memoryClasses.splice(idx, 1)[0];
+    return null;
+  },
+  teacherMessages: [
+    {
+      id: 1,
+      sender: 'Prof. John Keating (Teacher)',
+      text: 'Hello! Leo did fantastic on his equivalent fractions exercise today.',
+      timestamp: '10:30 AM',
+      isTeacher: true,
+      parentId: 'demo-parent-id-003',
+    },
+  ],
+  saveTeacherMessage: (msg) => {
+    const newMsg = {
+      id: Date.now(),
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      ...msg,
+    };
+    module.exports.teacherMessages.push(newMsg);
+    return newMsg;
+  },
 };

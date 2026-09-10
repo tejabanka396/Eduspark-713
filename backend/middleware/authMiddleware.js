@@ -73,4 +73,28 @@ const authorize = (...roles) => {
   };
 };
 
-module.exports = { protect, authorize };
+// Ensure teacher owns the subject
+const requireSubjectOwnership = (req, res, next) => {
+  if (req.user && req.user.role === 'admin') {
+    return next(); // Admins can bypass
+  }
+  
+  const requestedSubject = req.body.subject || req.query.subject;
+  
+  if (!requestedSubject) {
+    return next(); // Let controller handle missing subject error
+  }
+  
+  const subjects = req.user.subjects || (req.user.subject ? [req.user.subject] : []);
+  
+  if (!subjects.includes(requestedSubject)) {
+    return res.status(403).json({
+      success: false,
+      message: 'You are not authorized to access or generate content for this subject.',
+    });
+  }
+  
+  next();
+};
+
+module.exports = { protect, authorize, requireSubjectOwnership };
