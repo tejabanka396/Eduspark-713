@@ -12,22 +12,8 @@ import {
   Send,
   CheckCircle,
   X,
-  Bell,
-  Search,
-  MessageSquare,
-  FileCheck,
   Flame,
-  Calendar,
-  ChevronRight,
-  TrendingUp,
-  User,
-  Users,
-  AlertTriangle,
   Plus,
-  Settings as SettingsIcon,
-  Check,
-  Mail,
-  Phone,
 } from 'lucide-react';
 
 export const ParentDashboard: React.FC = () => {
@@ -205,9 +191,9 @@ export const ParentDashboard: React.FC = () => {
       const res = await fetchApi<any>('/parent/chat/send', {
         method: 'POST',
         body: JSON.stringify({ text: sentText }),
-      }).catch(() => ({ success: true }));
+      }).catch(() => ({ success: true, notice: 'Message sent to class teacher!' }));
 
-      showToast('Message sent to class teacher!');
+      showToast(res?.notice || 'Message sent to class teacher!');
       setChatData((prev: any) => ({
         ...prev,
         messages: [
@@ -266,6 +252,19 @@ export const ParentDashboard: React.FC = () => {
   const isTeachers = subRoute === 'teachers';
   const isAppointments = subRoute === 'appointments';
   const isSettings = subRoute === 'settings';
+
+  if (isLoading) {
+    return (
+      <DashboardLayout role="parent" pageTitle="Parent Portal">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-slate-600 text-xs font-bold">Loading parent portal...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout role="parent" pageTitle="Parent Portal">
@@ -497,12 +496,22 @@ export const ParentDashboard: React.FC = () => {
                 </p>
 
                 <div className="space-y-2.5">
-                  <div className="p-3 rounded-xl bg-indigo-50/60 border border-indigo-100 text-xs text-indigo-950 font-medium">
-                    💡 <strong>Parent Tip:</strong> Practice 15 minutes of reading comprehension daily to support English vocabulary.
-                  </div>
-                  <div className="p-3 rounded-xl bg-emerald-50/60 border border-emerald-100 text-xs text-emerald-950 font-medium">
-                    🌟 <strong>Praise:</strong> Consistently turns in science assignments with high attention to detail!
-                  </div>
+                  {aiRecommendations && aiRecommendations.length > 0 ? (
+                    aiRecommendations.map((rec: any, idx: number) => (
+                      <div key={idx} className="p-3 rounded-xl bg-indigo-50/60 border border-indigo-100 text-xs text-indigo-950 font-medium">
+                        💡 <strong>Recommendation:</strong> {rec.text || rec}
+                      </div>
+                    ))
+                  ) : (
+                    <>
+                      <div className="p-3 rounded-xl bg-indigo-50/60 border border-indigo-100 text-xs text-indigo-950 font-medium">
+                        💡 <strong>Parent Tip:</strong> Practice 15 minutes of reading comprehension daily to support English vocabulary.
+                      </div>
+                      <div className="p-3 rounded-xl bg-emerald-50/60 border border-emerald-100 text-xs text-emerald-950 font-medium">
+                        🌟 <strong>Praise:</strong> Consistently turns in science assignments with high attention to detail!
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -524,6 +533,22 @@ export const ParentDashboard: React.FC = () => {
                 <div className="p-2.5 rounded-xl bg-slate-50 text-slate-600 text-[11px] mb-3 flex items-center gap-2">
                   <Clock className="w-3.5 h-3.5 text-slate-400" />
                   <span>Office Hours: 09:00 AM – 04:00 PM</span>
+                </div>
+
+                <div className="space-y-2 mb-3 max-h-48 overflow-y-auto pr-1">
+                  {(chatData.messages || []).map((msg: any) => (
+                    <div
+                      key={msg.id}
+                      className={`p-2.5 rounded-xl text-xs ${
+                        msg.sender === 'parent'
+                          ? 'bg-emerald-50 text-emerald-950 ml-4 border border-emerald-100'
+                          : 'bg-slate-50 text-slate-800 mr-4 border border-slate-200'
+                      }`}
+                    >
+                      <p className="font-medium">{msg.text}</p>
+                      <span className="text-[10px] text-slate-400 mt-1 block text-right">{msg.time}</span>
+                    </div>
+                  ))}
                 </div>
 
                 <form onSubmit={handleSendMessage} className="space-y-2">

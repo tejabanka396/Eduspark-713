@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
 import { fetchApi } from '../../services/api';
 import { DashboardLayout } from '../../components/DashboardLayout';
 import {
@@ -13,21 +12,12 @@ import {
   Trash2,
   CheckCircle,
   X,
-  Sparkles,
   ChevronRight,
-  TrendingUp,
   FolderTree,
-  FileText,
-  HelpCircle,
-  FileCheck,
   BarChart2,
-  Settings,
-  Shield,
-  Search,
 } from 'lucide-react';
 
 export const AdminDashboard: React.FC = () => {
-  const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -52,8 +42,6 @@ export const AdminDashboard: React.FC = () => {
   const [parents, setParents] = useState<any[]>([]);
   const [classes, setClasses] = useState<any[]>([]);
   const [subjects, setSubjects] = useState<any[]>([]);
-  const [quizzes, setQuizzes] = useState<any[]>([]);
-  const [homeworks, setHomeworks] = useState<any[]>([]);
 
   // Filter & Search
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -83,7 +71,7 @@ export const AdminDashboard: React.FC = () => {
   const loadAllAdminData = async () => {
     setIsLoading(true);
     try {
-      const [statsRes, teachersRes, studentsRes, parentsRes, classesRes, subjectsRes, teacherLessonsRes] = await Promise.all([
+      const [statsRes, teachersRes, studentsRes, parentsRes, classesRes, subjectsRes] = await Promise.all([
         fetchApi<any>('/admin/stats').catch(() => null),
         fetchApi<any>('/admin/teachers').catch(() => ({ data: [] })),
         fetchApi<any>('/admin/students').catch(() => ({ data: [] })),
@@ -229,6 +217,19 @@ export const AdminDashboard: React.FC = () => {
   const filteredTeachers = teachers.filter((t) => t.name?.toLowerCase().includes(searchTerm.toLowerCase()) || t.email?.toLowerCase().includes(searchTerm.toLowerCase()));
   const filteredStudents = students.filter((s) => s.name?.toLowerCase().includes(searchTerm.toLowerCase()) || s.email?.toLowerCase().includes(searchTerm.toLowerCase()));
   const filteredParents = parents.filter((p) => p.name?.toLowerCase().includes(searchTerm.toLowerCase()) || p.email?.toLowerCase().includes(searchTerm.toLowerCase()));
+
+  if (isLoading) {
+    return (
+      <DashboardLayout role="admin" pageTitle="School Administration & Operations">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-slate-600 text-xs font-bold">Loading administration data...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout

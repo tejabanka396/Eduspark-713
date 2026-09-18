@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import type { UserRole } from '../types/auth';
 import { RoleSelector } from '../components/RoleSelector';
-import { Mail, Lock, Eye, EyeOff, Sparkles, ArrowRight, AlertCircle, BookOpen } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, Sparkles, ArrowRight, AlertCircle } from 'lucide-react';
 
 export const Login: React.FC = () => {
   const [email, setEmail] = useState('student@eduspark.ai');

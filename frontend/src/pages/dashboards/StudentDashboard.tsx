@@ -19,7 +19,7 @@ import {
   Upload,
   Clock,
   ChevronRight,
-  Award,
+  Bookmark,
   RefreshCw,
   Mic,
   Volume2,
@@ -144,6 +144,24 @@ export const StudentDashboard: React.FC = () => {
   const showToast = (msg: string) => {
     setNotification(msg);
     setTimeout(() => setNotification(''), 4000);
+  };
+
+  const handleToggleBookmark = async (lessonId: string) => {
+    try {
+      const res = await fetchApi<any>(`/student/bookmark/${lessonId}`, {
+        method: 'POST',
+      });
+      if (res.success) {
+        if (bookmarks.includes(lessonId)) {
+          setBookmarks((prev) => prev.filter((id) => id !== lessonId));
+        } else {
+          setBookmarks((prev) => [...prev, lessonId]);
+        }
+        showToast(res.message || 'Bookmark updated!');
+      }
+    } catch {
+      showToast('Failed to update bookmark.');
+    }
   };
 
   // Filter lessons
@@ -402,6 +420,19 @@ export const StudentDashboard: React.FC = () => {
     }
   };
 
+  if (isLoading) {
+    return (
+      <DashboardLayout role="student" pageTitle="Student Learning Explorer">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-slate-600 text-xs font-bold">Loading student portal...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   return (
     <DashboardLayout
       role="student"
@@ -563,9 +594,27 @@ export const StudentDashboard: React.FC = () => {
 
                         <div className="p-3.5 flex-1 flex flex-col justify-between">
                           <div>
-                            <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded-md mb-1.5 inline-block">
-                              {lesson.subject || 'Mathematics'}
-                            </span>
+                            <div className="flex items-center justify-between gap-1 mb-1.5">
+                              <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded-md inline-block">
+                                {lesson.subject || 'Mathematics'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const id = lesson._id || lesson.id;
+                                  if (id) handleToggleBookmark(id);
+                                }}
+                                title={bookmarks.includes(lesson._id || lesson.id) ? 'Bookmarked' : 'Bookmark lesson'}
+                                className={`p-1 rounded-md transition-colors cursor-pointer ${
+                                  bookmarks.includes(lesson._id || lesson.id)
+                                    ? 'text-amber-500 hover:text-amber-600 bg-amber-50'
+                                    : 'text-slate-300 hover:text-slate-600 hover:bg-slate-50'
+                                }`}
+                              >
+                                <Bookmark className={`w-3.5 h-3.5 ${bookmarks.includes(lesson._id || lesson.id) ? 'fill-amber-500' : ''}`} />
+                              </button>
+                            </div>
                             <h3 className="text-xs font-bold text-slate-900 line-clamp-1 group-hover:text-blue-600 transition-colors">
                               {lesson.title}
                             </h3>
@@ -684,9 +733,27 @@ export const StudentDashboard: React.FC = () => {
 
                     <div className="p-3.5 flex-1 flex flex-col justify-between">
                       <div>
-                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded-md mb-1 inline-block">
-                          {lesson.subject || 'Mathematics'}
-                        </span>
+                        <div className="flex items-center justify-between gap-1 mb-1">
+                          <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded-md inline-block">
+                            {lesson.subject || 'Mathematics'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const id = lesson._id || lesson.id;
+                              if (id) handleToggleBookmark(id);
+                            }}
+                            title={bookmarks.includes(lesson._id || lesson.id) ? 'Bookmarked' : 'Bookmark lesson'}
+                            className={`p-1 rounded-md transition-colors cursor-pointer ${
+                              bookmarks.includes(lesson._id || lesson.id)
+                                ? 'text-amber-500 hover:text-amber-600 bg-amber-50'
+                                : 'text-slate-300 hover:text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            <Bookmark className={`w-3.5 h-3.5 ${bookmarks.includes(lesson._id || lesson.id) ? 'fill-amber-500' : ''}`} />
+                          </button>
+                        </div>
                         <h3 className="text-xs font-bold text-slate-900 line-clamp-1">{lesson.title}</h3>
                         {lesson.chapter && <p className="text-[11px] text-slate-500 mt-0.5">{lesson.chapter}</p>}
                       </div>

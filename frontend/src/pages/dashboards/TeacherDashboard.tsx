@@ -9,7 +9,6 @@ import {
   Plus,
   Video,
   BarChart2,
-  BarChart3,
   X,
   CheckCircle,
   AlertTriangle,
@@ -18,19 +17,8 @@ import {
   Play,
   FileCheck,
   BookOpen,
-  Calendar,
-  Users,
-  Search,
-  ExternalLink,
-  RefreshCw,
-  Clock,
-  Menu,
   HelpCircle,
-  MessageSquare,
   Send,
-  User,
-  Settings as SettingsIcon,
-  Check,
 } from 'lucide-react';
 
 export const TeacherDashboard: React.FC = () => {
@@ -393,6 +381,19 @@ export const TeacherDashboard: React.FC = () => {
   const isParents = subRoute === 'parents';
   const isSettings = subRoute === 'settings';
 
+  if (isLoading) {
+    return (
+      <DashboardLayout role="teacher" pageTitle="Teacher Workspace">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-slate-600 text-xs font-bold">Loading teacher workspace...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   return (
     <DashboardLayout role="teacher" pageTitle="Teacher Workspace">
       {/* Toast Notification */}
@@ -444,7 +445,7 @@ export const TeacherDashboard: React.FC = () => {
                 <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
                   <p className="text-xs font-bold text-slate-500 mb-1">Today's Classes</p>
                   <h3 className="text-2xl font-black text-slate-900">22</h3>
-                  <button onClick={() => setActiveTab('classes')} className="text-[11px] text-blue-600 font-bold hover:underline mt-2 inline-block cursor-pointer">
+                  <button onClick={() => navigate('/teacher/classes')} className="text-[11px] text-blue-600 font-bold hover:underline mt-2 inline-block cursor-pointer">
                     View Schedule →
                   </button>
                 </div>
@@ -452,7 +453,7 @@ export const TeacherDashboard: React.FC = () => {
                 <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
                   <p className="text-xs font-bold text-slate-500 mb-1">Total Students</p>
                   <h3 className="text-2xl font-black text-slate-900">{stats?.totalStudents || 48}</h3>
-                  <button onClick={() => setActiveTab('students')} className="text-[11px] text-blue-600 font-bold hover:underline mt-2 inline-block cursor-pointer">
+                  <button onClick={() => navigate('/teacher/analytics')} className="text-[11px] text-blue-600 font-bold hover:underline mt-2 inline-block cursor-pointer">
                     View Students →
                   </button>
                 </div>
@@ -460,7 +461,7 @@ export const TeacherDashboard: React.FC = () => {
                 <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
                   <p className="text-xs font-bold text-slate-500 mb-1">Pending Homework</p>
                   <h3 className="text-2xl font-black text-slate-900">{stats?.homeworksCount || 5}</h3>
-                  <button onClick={() => setActiveTab('homework')} className="text-[11px] text-blue-600 font-bold hover:underline mt-2 inline-block cursor-pointer">
+                  <button onClick={() => navigate('/teacher/homework')} className="text-[11px] text-blue-600 font-bold hover:underline mt-2 inline-block cursor-pointer">
                     View All →
                   </button>
                 </div>
@@ -1154,6 +1155,20 @@ export const TeacherDashboard: React.FC = () => {
                     <span className="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full">
                       Active
                     </span>
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold text-xs text-slate-800">Session Management</h4>
+                      <p className="text-[11px] text-slate-500">Sign out of your teacher account</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={logout}
+                      className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs rounded-xl border border-rose-200 transition-colors cursor-pointer"
+                    >
+                      Sign Out
+                    </button>
                   </div>
                 </div>
               </div>

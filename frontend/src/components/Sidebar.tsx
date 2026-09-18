@@ -180,7 +180,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs shrink-0 shadow-xs">
                 {userName.charAt(0).toUpperCase()}
               </div>
-              <div className="overflow-hidden">
+              <div className="overflow-hidden" title={userEmail || undefined}>
                 <p className="text-xs font-bold text-slate-800 truncate leading-tight">{userName}</p>
                 <p className="text-[10px] text-slate-500 capitalize">{role}</p>
               </div>
