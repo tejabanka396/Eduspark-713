@@ -47,7 +47,7 @@ exports.handleAiTutor = async (req, res) => {
  */
 exports.handleHomeworkHelper = async (req, res) => {
   try {
-    const { question, questionText, imageDataBase64, mimeType, subject, class: studentClass } = req.body;
+    const { question, questionText, imageDataBase64, mimeType, subject, class: studentClass, history, previousContext } = req.body;
 
     const qText = question || questionText || '';
     if (!qText && !imageDataBase64) {
@@ -60,6 +60,8 @@ exports.handleHomeworkHelper = async (req, res) => {
       mimeType: mimeType || 'image/jpeg',
       subject: subject || 'General Subject',
       studentClass: studentClass || req.user?.grade || 'Grade 4',
+      history: history || [],
+      previousContext: previousContext || '',
     });
 
     return res.status(200).json({

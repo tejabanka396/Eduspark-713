@@ -1,62 +1,88 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { fetchApi } from '../../services/api';
+import { DashboardLayout } from '../../components/DashboardLayout';
+import { validateYouTubeUrl, extractYouTubeVideoId } from '../../utils/youtube';
 import {
-  GraduationCap,
-  LogOut,
-  BookOpen,
-  FileCheck,
   Sparkles,
-  Clock,
   Plus,
   Video,
   BarChart2,
-  MessageSquare,
+  BarChart3,
   X,
   CheckCircle,
   AlertTriangle,
   Trash2,
+  Edit2,
+  Play,
+  FileCheck,
+  BookOpen,
+  Calendar,
+  Users,
+  Search,
+  ExternalLink,
+  RefreshCw,
+  Clock,
+  Menu,
+  HelpCircle,
+  MessageSquare,
+  Send,
+  User,
+  Settings as SettingsIcon,
+  Check,
 } from 'lucide-react';
 
 export const TeacherDashboard: React.FC = () => {
   const { user, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'lessons' | 'homework' | 'ai-quiz' | 'analytics' | 'communication'>('overview');
+  const location = useLocation();
+  const navigate = useNavigate();
 
-  // State Data
+  // Route extraction: e.g. /teacher/lessons -> 'lessons', /teacher -> 'overview'
+  const subRoute = location.pathname.replace('/teacher', '').replace(/^\//, '') || 'overview';
+
+  // Core Data
   const [stats, setStats] = useState<any>(null);
-  const [announcements, setAnnouncements] = useState<any[]>([]);
-  const [alerts, setAlerts] = useState<any[]>([]);
   const [lessons, setLessons] = useState<any[]>([]);
   const [homeworks, setHomeworks] = useState<any[]>([]);
   const [quizzes, setQuizzes] = useState<any[]>([]);
   const [analytics, setAnalytics] = useState<any[]>([]);
-  const [workingHours, setWorkingHours] = useState<any>({ isWorkingHours: true, workingHours: '9:00 AM – 4:00 PM' });
-
-  // Notifications & Loading
-  const [notification, setNotification] = useState<string>('');
+  const [curriculum, setCurriculum] = useState<any>({ assignedClasses: [], assignedSubjects: [], curriculum: {} });
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  // Lesson Form State
-  const [showLessonModal, setShowLessonModal] = useState<boolean>(false);
-  const [lessonData, setLessonData] = useState<any>({
+  // Video Management Modals & State
+  const [showVideoModal, setShowVideoModal] = useState<boolean>(false);
+  const [isEditingVideo, setIsEditingVideo] = useState<boolean>(false);
+  const [editingVideoId, setEditingVideoId] = useState<string | null>(null);
+  const [videoForm, setVideoForm] = useState<any>({
     title: '',
-    description: '',
-    grade: 'Grade 4',
+    youtubeUrl: '',
+    className: 'Grade 4 - Alpha',
     subject: 'Mathematics',
-    category: 'daily',
-    contentType: 'video',
-    youtubeUrl: 'https://www.youtube.com/embed/n0FQSx012N8',
-    fileUrl: '',
+    chapter: '',
+    topic: '',
+    description: '',
   });
+  const [videoUrlError, setVideoUrlError] = useState<string | null>(null);
+  const [videoPreviewId, setVideoPreviewId] = useState<string | null>(null);
+  const [isSavingVideo, setIsSavingVideo] = useState<boolean>(false);
 
-  // Homework Form State
+  // Delete Confirmation Modal
+  const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // Watch Video Modal
+  const [watchingVideo, setWatchingVideo] = useState<any | null>(null);
+
+  // Homework Modal State
   const [showHwModal, setShowHwModal] = useState<boolean>(false);
   const [hwData, setHwData] = useState<any>({
     title: '',
     description: '',
     grade: 'Grade 4',
     subject: 'Mathematics',
-    dueDate: '2026-07-30',
+    dueDate: '2026-08-15',
     totalMarks: 100,
   });
 
@@ -69,8 +95,8 @@ export const TeacherDashboard: React.FC = () => {
   const [aiQuizData, setAiQuizData] = useState<any>({
     grade: 'Grade 4',
     subject: 'Mathematics',
-    chapter: 'Chapter 1',
-    topic: 'Quadratic Equations',
+    chapter: 'Chapter 1: Fractions & Decimals',
+    topic: 'Equivalent Fractions',
     difficulty: 'Medium',
     questionType: 'mixed',
     numberOfQuestions: 4,
@@ -80,102 +106,204 @@ export const TeacherDashboard: React.FC = () => {
   });
   const [isGeneratingQuiz, setIsGeneratingQuiz] = useState<boolean>(false);
   const [previewQuiz, setPreviewQuiz] = useState<any>(null);
-  const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null);
-  const [isSavingQuiz, setIsSavingQuiz] = useState<boolean>(false);
-  const [editingQIndex, setEditingQIndex] = useState<number | null>(null);
-  const [editQForm, setEditQForm] = useState<any>({});
-  const [showMaterialInput, setShowMaterialInput] = useState<boolean>(false);
 
-  // Load Data on Mount and Sync Profile Defaults
   useEffect(() => {
-    loadAllTeacherData();
+    loadAllData();
   }, []);
 
+  // Update curriculum defaults once loaded
   useEffect(() => {
-    if (user) {
-      const defaultSubject = user.subjects && user.subjects.length > 0 ? user.subjects[0] : (user.subject || 'Mathematics');
-      const defaultGrade = user.grades && user.grades.length > 0 ? user.grades[0] : 'Grade 4';
-      
-      setLessonData((prev: any) => ({ ...prev, subject: defaultSubject, grade: defaultGrade }));
-      setHwData((prev: any) => ({ ...prev, subject: defaultSubject, grade: defaultGrade }));
-      setAiQuizData((prev: any) => ({ ...prev, subject: defaultSubject, grade: defaultGrade }));
-    }
-  }, [user]);
+    if (curriculum.assignedClasses?.length > 0) {
+      const defaultClass = curriculum.assignedClasses[0];
+      const defaultSubj = curriculum.assignedSubjects[0] || 'Mathematics';
+      const availableChapters = curriculum.curriculum[defaultClass]?.[defaultSubj] || [];
+      const defaultChap = availableChapters[0]?.chapter || '';
+      const defaultTop = availableChapters[0]?.topics?.[0] || '';
 
-  const loadAllTeacherData = async () => {
+      setVideoForm((prev: any) => ({
+        ...prev,
+        className: prev.className || defaultClass,
+        subject: prev.subject || defaultSubj,
+        chapter: prev.chapter || defaultChap,
+        topic: prev.topic || defaultTop,
+      }));
+
+      setAiQuizData((prev: any) => ({
+        ...prev,
+        grade: defaultClass,
+        subject: defaultSubj,
+        chapter: defaultChap,
+        topic: defaultTop,
+      }));
+    }
+  }, [curriculum]);
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 4000);
+  };
+
+  const loadAllData = async () => {
     setIsLoading(true);
     try {
-      const [statsRes, lessonsRes, hwRes, quizzesRes, analyticsRes, whRes] = await Promise.all([
+      const [statsRes, currRes, lessonsRes, hwRes, quizzesRes, analyticsRes] = await Promise.all([
         fetchApi<any>('/teacher/stats').catch(() => null),
-        fetchApi<any>('/teacher/lessons').catch(() => ({ data: [] })),
+        fetchApi<any>('/teacher/curriculum').catch(() => null),
+        fetchApi<any>('/teacher/videos').catch(() => ({ data: [] })),
         fetchApi<any>('/teacher/homeworks').catch(() => ({ data: [] })),
         fetchApi<any>('/teacher/quizzes').catch(() => ({ data: [] })),
         fetchApi<any>('/teacher/analytics').catch(() => ({ data: [] })),
-        fetchApi<any>('/teacher/working-hours').catch(() => ({ isWorkingHours: true })),
       ]);
 
-      if (statsRes && statsRes.success) {
-        setStats(statsRes.stats);
-        setAnnouncements(statsRes.announcements || []);
-        setAlerts(statsRes.alerts || []);
-      }
+      if (statsRes && statsRes.success) setStats(statsRes.stats);
+      if (currRes && currRes.success) setCurriculum(currRes);
       setLessons(lessonsRes.data || []);
       setHomeworks(hwRes.data || []);
       setQuizzes(quizzesRes.data || []);
       setAnalytics(analyticsRes.data || []);
-      if (whRes) setWorkingHours(whRes);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error loading teacher data:', err);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const showToast = (msg: string) => {
-    setNotification(msg);
-    setTimeout(() => setNotification(''), 4000);
-  };
-
-  // Submit New Lesson
-  const handleCreateLesson = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const res = await fetchApi<any>('/teacher/lessons', {
-        method: 'POST',
-        body: JSON.stringify(lessonData),
-      });
-
-      if (res.success) {
-        showToast(res.message || 'Lesson published!');
-        setShowLessonModal(false);
-        setLessonData({
-          title: '',
-          description: '',
-          grade: 'Grade 4',
-          subject: 'Mathematics',
-          category: 'daily',
-          contentType: 'video',
-          youtubeUrl: 'https://www.youtube.com/embed/n0FQSx012N8',
-          fileUrl: '',
-        });
-        loadAllTeacherData();
-      }
-    } catch (err: any) {
-      showToast(err.message || 'Error publishing lesson.');
+  // Video URL Change & Live Preview Handler
+  const handleUrlChange = (url: string) => {
+    setVideoForm((prev: any) => ({ ...prev, youtubeUrl: url }));
+    if (!url.trim()) {
+      setVideoUrlError(null);
+      setVideoPreviewId(null);
+      return;
+    }
+    const check = validateYouTubeUrl(url);
+    if (!check.isValid) {
+      setVideoUrlError('Please enter a valid YouTube video URL.');
+      setVideoPreviewId(null);
+    } else {
+      setVideoUrlError(null);
+      setVideoPreviewId(check.videoId);
     }
   };
 
-  // Delete Lesson
-  const handleDeleteLesson = async (id: string) => {
-    if (!window.confirm('Delete this lesson?')) return;
+  // Dynamic Chapter & Topic getters
+  const getChaptersForCurrentSelection = () => {
+    const cls = videoForm.className || curriculum.assignedClasses?.[0] || 'Grade 4 - Alpha';
+    const subj = videoForm.subject || curriculum.assignedSubjects?.[0] || 'Mathematics';
+    return curriculum.curriculum?.[cls]?.[subj] || [];
+  };
+
+  const getTopicsForCurrentChapter = () => {
+    const chapters = getChaptersForCurrentSelection();
+    const current = chapters.find((c: any) => c.chapter === videoForm.chapter);
+    return current ? current.topics : [];
+  };
+
+  // Open Add Video Modal
+  const openAddVideoModal = () => {
+    setIsEditingVideo(false);
+    setEditingVideoId(null);
+    const defaultClass = curriculum.assignedClasses?.[0] || 'Grade 4 - Alpha';
+    const defaultSubj = curriculum.assignedSubjects?.[0] || 'Mathematics';
+    const chapters = curriculum.curriculum?.[defaultClass]?.[defaultSubj] || [];
+    const defaultChap = chapters[0]?.chapter || 'Chapter 1: Fractions & Decimals';
+    const defaultTop = chapters[0]?.topics?.[0] || 'Basic Fractions';
+
+    setVideoForm({
+      title: '',
+      youtubeUrl: '',
+      className: defaultClass,
+      subject: defaultSubj,
+      chapter: defaultChap,
+      topic: defaultTop,
+      description: '',
+    });
+    setVideoUrlError(null);
+    setVideoPreviewId(null);
+    setShowVideoModal(true);
+  };
+
+  // Open Edit Video Modal
+  const openEditVideoModal = (video: any) => {
+    setIsEditingVideo(true);
+    setEditingVideoId(video._id || video.id);
+    const ytId = video.youtubeVideoId || extractYouTubeVideoId(video.youtubeUrl);
+    setVideoForm({
+      title: video.title || '',
+      youtubeUrl: video.youtubeUrl || '',
+      className: video.className || video.grade || curriculum.assignedClasses?.[0] || 'Grade 4 - Alpha',
+      subject: video.subject || curriculum.assignedSubjects?.[0] || 'Mathematics',
+      chapter: video.chapter || '',
+      topic: video.topic || '',
+      description: video.description || '',
+    });
+    setVideoPreviewId(ytId);
+    setVideoUrlError(null);
+    setShowVideoModal(true);
+  };
+
+  // Save / Update Video
+  const handleSaveVideo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!videoForm.title.trim()) {
+      showToast('Video title is required.', 'error');
+      return;
+    }
+
+    const check = validateYouTubeUrl(videoForm.youtubeUrl);
+    if (!check.isValid) {
+      setVideoUrlError('Please enter a valid YouTube video URL.');
+      showToast('Please enter a valid YouTube video URL.', 'error');
+      return;
+    }
+
+    setIsSavingVideo(true);
     try {
-      const res = await fetchApi<any>(`/teacher/lessons/${id}`, { method: 'DELETE' });
-      if (res.success) {
-        showToast('Lesson deleted.');
-        loadAllTeacherData();
+      if (isEditingVideo && editingVideoId) {
+        const res = await fetchApi<any>(`/teacher/videos/${editingVideoId}`, {
+          method: 'PUT',
+          body: JSON.stringify(videoForm),
+        });
+        if (res.success) {
+          showToast('Video updated successfully!', 'success');
+          setShowVideoModal(false);
+          loadAllData();
+        }
+      } else {
+        const res = await fetchApi<any>('/teacher/videos', {
+          method: 'POST',
+          body: JSON.stringify(videoForm),
+        });
+        if (res.success) {
+          showToast('YouTube video added successfully!', 'success');
+          setShowVideoModal(false);
+          loadAllData();
+        }
       }
     } catch (err: any) {
-      showToast(err.message || 'Failed to delete lesson.');
+      showToast(err.message || 'Failed to save video.', 'error');
+    } finally {
+      setIsSavingVideo(false);
+    }
+  };
+
+  // Confirm and Execute Delete Video
+  const handleConfirmDelete = async () => {
+    if (!deletingVideoId) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetchApi<any>(`/teacher/videos/${deletingVideoId}`, {
+        method: 'DELETE',
+      });
+      if (res.success) {
+        showToast('Video deleted successfully.', 'success');
+        setDeletingVideoId(null);
+        setLessons((prev) => prev.filter((l) => (l._id || l.id) !== deletingVideoId));
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete video.', 'error');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -187,1189 +315,1122 @@ export const TeacherDashboard: React.FC = () => {
         method: 'POST',
         body: JSON.stringify(hwData),
       });
-
       if (res.success) {
-        showToast(res.message || 'Homework assigned!');
+        showToast('Homework created successfully!', 'success');
         setShowHwModal(false);
-        loadAllTeacherData();
+        loadAllData();
       }
     } catch (err: any) {
-      showToast(err.message || 'Error creating homework.');
+      showToast(err.message || 'Error creating homework.', 'error');
     }
   };
 
-  // Grade Student Submission
-  const handleSaveGrade = async (hwId: string, subId: string) => {
+  // Submit Grading
+  const handleGradeSubmit = async () => {
+    if (!selectedSub) return;
     try {
-      const res = await fetchApi<any>(`/teacher/homeworks/${hwId}/grade/${subId}`, {
+      const res = await fetchApi<any>(`/teacher/homeworks/${selectedSub.hwId}/grade/${selectedSub.submissionId}`, {
         method: 'PUT',
-        body: JSON.stringify({ marksObtained: gradingMarks, feedback: gradingFeedback }),
+        body: JSON.stringify({ marks: gradingMarks, feedback: gradingFeedback }),
       });
-
       if (res.success) {
-        showToast('Submission graded!');
+        showToast('Grade submitted successfully!', 'success');
         setSelectedSub(null);
-        loadAllTeacherData();
+        loadAllData();
       }
     } catch (err: any) {
-      showToast(err.message || 'Error saving grade.');
+      showToast(err.message || 'Failed to submit grade.', 'error');
     }
   };
 
-  // AI Quiz Generator Submit (Generate Preview)
-  const handleGenerateAiQuiz = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Generate AI Quiz
+  const handleGenerateQuiz = async () => {
     setIsGeneratingQuiz(true);
     try {
-      const res = await fetchApi<any>('/ai/quiz/generate', {
+      const res = await fetchApi<any>('/teacher/quizzes/generate-ai', {
         method: 'POST',
-        body: JSON.stringify({ ...aiQuizData, saveImmediately: false }),
+        body: JSON.stringify(aiQuizData),
       });
-
-      if (res.success && res.data) {
+      if (res.success) {
         setPreviewQuiz(res.data);
-        showToast('✨ Quiz preview generated! Review, edit, or regenerate questions before publishing.');
+        showToast('✨ AI Quiz generated successfully!', 'success');
       }
     } catch (err: any) {
-      showToast(err.message || 'AI Quiz Generation failed.');
+      showToast(err.message || 'Error generating quiz.', 'error');
     } finally {
       setIsGeneratingQuiz(false);
     }
   };
 
-  // Regenerate Single Question
-  const handleRegenerateQuestion = async (index: number) => {
-    if (!previewQuiz) return;
-    setRegeneratingIndex(index);
-    try {
-      const existingQs = previewQuiz.questions || [];
-      const res = await fetchApi<any>('/teacher/quizzes/regenerate-question', {
-        method: 'POST',
-        body: JSON.stringify({
-          grade: previewQuiz.grade,
-          subject: previewQuiz.subject,
-          chapter: previewQuiz.chapter,
-          topic: previewQuiz.topic,
-          difficulty: previewQuiz.difficulty,
-          questionType: previewQuiz.questionType,
-          existingQuestions: existingQs,
-          sourceMaterialText: aiQuizData.sourceMaterialText,
-        }),
-      });
-
-      if (res.success && res.data) {
-        const updatedQuestions = [...previewQuiz.questions];
-        updatedQuestions[index] = res.data;
-        setPreviewQuiz({ ...previewQuiz, questions: updatedQuestions });
-        showToast(`⚡ Question #${index + 1} regenerated successfully!`);
-      }
-    } catch (err: any) {
-      showToast(err.message || 'Failed to regenerate question.');
-    } finally {
-      setRegeneratingIndex(null);
-    }
-  };
-
-  // Add Question to Preview
-  const handleAddQuestionToPreview = async () => {
-    if (!previewQuiz) return;
-    const nextIdx = previewQuiz.questions.length;
-    setRegeneratingIndex(nextIdx);
-    try {
-      const res = await fetchApi<any>('/teacher/quizzes/regenerate-question', {
-        method: 'POST',
-        body: JSON.stringify({
-          grade: previewQuiz.grade,
-          subject: previewQuiz.subject,
-          chapter: previewQuiz.chapter,
-          topic: previewQuiz.topic,
-          difficulty: previewQuiz.difficulty,
-          questionType: previewQuiz.questionType,
-          existingQuestions: previewQuiz.questions,
-          sourceMaterialText: aiQuizData.sourceMaterialText,
-        }),
-      });
-
-      if (res.success && res.data) {
-        setPreviewQuiz({
-          ...previewQuiz,
-          questions: [...previewQuiz.questions, res.data],
-        });
-        showToast('✨ New question added to quiz!');
-      }
-    } catch (err: any) {
-      showToast(err.message || 'Failed to add question.');
-    } finally {
-      setRegeneratingIndex(null);
-    }
-  };
-
-  // Start Inline Editing Question
-  const handleStartEditQuestion = (index: number) => {
-    setEditingQIndex(index);
-    setEditQForm({ ...previewQuiz.questions[index] });
-  };
-
-  // Save Inline Edit Question
-  const handleSaveEditQuestion = (index: number) => {
-    const updated = [...previewQuiz.questions];
-    updated[index] = editQForm;
-    setPreviewQuiz({ ...previewQuiz, questions: updated });
-    setEditingQIndex(null);
-    showToast('Question updated!');
-  };
-
-  // Delete Question from Preview
-  const handleDeleteQuestionFromPreview = (index: number) => {
-    const updated = previewQuiz.questions.filter((_: any, i: number) => i !== index);
-    setPreviewQuiz({ ...previewQuiz, questions: updated });
-    showToast('Question removed from preview.');
-  };
-
-  // Save / Publish Final Quiz
+  // Publish Generated Quiz
   const handlePublishQuiz = async () => {
-    if (!previewQuiz || !previewQuiz.questions || !previewQuiz.questions.length) {
-      showToast('Quiz must have at least 1 question.');
-      return;
-    }
-    setIsSavingQuiz(true);
+    if (!previewQuiz) return;
     try {
       const res = await fetchApi<any>('/teacher/quizzes/save', {
         method: 'POST',
-        body: JSON.stringify(previewQuiz),
+        body: JSON.stringify({ ...previewQuiz, isPublished: true }),
       });
-
       if (res.success) {
-        showToast('✨ AI Quiz successfully published and assigned to students!');
+        showToast('Quiz published successfully!', 'success');
         setPreviewQuiz(null);
-        loadAllTeacherData();
+        loadAllData();
       }
     } catch (err: any) {
-      showToast(err.message || 'Failed to publish quiz.');
-    } finally {
-      setIsSavingQuiz(false);
+      showToast(err.message || 'Failed to publish quiz.', 'error');
     }
   };
 
-  // Delete Published Quiz
-  const handleDeleteQuiz = async (quizId: string) => {
-    if (!window.confirm('Delete this published quiz?')) return;
-    try {
-      const res = await fetchApi<any>(`/teacher/quizzes/${quizId}`, {
-        method: 'DELETE',
-      });
-      if (res.success) {
-        showToast('Quiz deleted.');
-        loadAllTeacherData();
-      }
-    } catch (err: any) {
-      showToast(err.message || 'Failed to delete quiz.');
-    }
-  };
+  const teacherName = user?.name || 'Ms. Priya Sharma';
+  const teacherIdDisplay = (user as any)?.teacherId || 'TCH001';
+  const teacherPrimarySubject = (user as any)?.subject || (user as any)?.subjects?.[0] || 'Mathematics';
+  const teacherAssignedClass = (user as any)?.assignedClass || 'Class 3 & 4';
+
+  const isOverview = subRoute === 'overview' || subRoute === '' || subRoute === 'dashboard';
+  const isLessons = subRoute === 'lessons';
+  const isHomework = subRoute === 'homework';
+  const isQuizzes = subRoute === 'quizzes';
+  const isAnalytics = subRoute === 'analytics';
+  const isParents = subRoute === 'parents';
+  const isSettings = subRoute === 'settings';
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col">
-      {/* Top Navbar */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-wrap items-center justify-between shadow-sm sticky top-0 z-30">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-md">
-            <GraduationCap className="w-6 h-6" />
-          </div>
-          <div>
-            <h1 className="font-black text-lg text-slate-900 flex items-center gap-2">
-              EduSpark AI <span className="bg-indigo-100 text-indigo-700 text-xs px-2.5 py-0.5 rounded-full font-bold">Teacher Workspace</span>
-            </h1>
-            <p className="text-xs text-slate-500">Primary Education Management & AI Tutoring</p>
-          </div>
+    <DashboardLayout role="teacher" pageTitle="Teacher Workspace">
+      {/* Toast Notification */}
+      {notification && (
+        <div
+          className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-2xl shadow-lg border text-sm flex items-center gap-2 animate-bounce ${
+            notification.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-rose-50 border-rose-200 text-rose-800'
+          }`}
+        >
+          {notification.type === 'success' ? <CheckCircle className="w-4 h-4 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 text-rose-600" />}
+          <span>{notification.message}</span>
         </div>
+      )}
 
-        <div className="flex items-center gap-4 mt-2 sm:mt-0">
-          {/* Working Hours Indicator */}
-          <div
-            className={`px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 border ${
-              workingHours.isWorkingHours
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                : 'bg-amber-50 text-amber-800 border-amber-200'
-            }`}
-          >
-            <Clock className="w-3.5 h-3.5" />
-            <span>{workingHours.isWorkingHours ? 'Available (9 AM – 4 PM)' : 'Unavailable Outside Hours'}</span>
-          </div>
+      {/* TAB 1: OVERVIEW */}
+      {isOverview && (
+        <div className="space-y-6">
+              {/* Teacher Profile Summary Card (Matching Panel 3 Reference) */}
+              <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-2xl bg-amber-100 border-2 border-amber-200 flex items-center justify-center text-3xl shrink-0 shadow-xs">
+                    👩‍🏫
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h1 className="text-xl font-black text-slate-900">{teacherName}</h1>
+                      <span className="text-[11px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                        Teacher ID: {teacherIdDisplay}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 font-medium mt-1">
+                      {teacherPrimarySubject} Teacher • {teacherAssignedClass}
+                    </p>
+                  </div>
+                </div>
 
-          <div className="text-right hidden sm:block">
-            <p className="text-sm font-extrabold text-slate-800">{user?.name}</p>
-            <p className="text-xs text-indigo-600 font-bold">
-              {user?.subjects && user.subjects.length > 0
-                ? user.subjects.join(' & ')
-                : (user?.subject || 'Mathematics & Science')}
-            </p>
-          </div>
-          <button
-            onClick={logout}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-rose-50 border border-slate-200 text-slate-700 hover:text-rose-600 font-bold text-xs transition-colors cursor-pointer"
-          >
-            <LogOut className="w-4 h-4" />
-            <span>Sign Out</span>
-          </button>
-        </div>
-      </header>
+                <button
+                  onClick={openAddVideoModal}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-xs cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" /> Add YouTube Video
+                </button>
+              </div>
 
-      {/* Main Container */}
-      <main className="max-w-7xl w-full mx-auto p-4 sm:p-8 flex-1">
-        {isLoading && (
-          <div className="mb-4 text-xs font-bold text-slate-400 animate-pulse flex items-center gap-2">
-            <div className="w-3 h-3 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-            Loading Teacher Workstation...
-          </div>
-        )}
-        {/* Toast Alert */}
-        {notification && (
-          <div className="mb-6 p-4 rounded-2xl bg-indigo-600 text-white font-bold text-sm flex items-center justify-between shadow-lg animate-fade-in">
-            <div className="flex items-center gap-2">
-              <CheckCircle className="w-5 h-5" />
-              <span>{notification}</span>
+              {/* 4 Metrics Row (Matching Panel 3 Reference) */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+                  <p className="text-xs font-bold text-slate-500 mb-1">Today's Classes</p>
+                  <h3 className="text-2xl font-black text-slate-900">22</h3>
+                  <button onClick={() => setActiveTab('classes')} className="text-[11px] text-blue-600 font-bold hover:underline mt-2 inline-block cursor-pointer">
+                    View Schedule →
+                  </button>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+                  <p className="text-xs font-bold text-slate-500 mb-1">Total Students</p>
+                  <h3 className="text-2xl font-black text-slate-900">{stats?.totalStudents || 48}</h3>
+                  <button onClick={() => setActiveTab('students')} className="text-[11px] text-blue-600 font-bold hover:underline mt-2 inline-block cursor-pointer">
+                    View Students →
+                  </button>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+                  <p className="text-xs font-bold text-slate-500 mb-1">Pending Homework</p>
+                  <h3 className="text-2xl font-black text-slate-900">{stats?.homeworksCount || 5}</h3>
+                  <button onClick={() => setActiveTab('homework')} className="text-[11px] text-blue-600 font-bold hover:underline mt-2 inline-block cursor-pointer">
+                    View All →
+                  </button>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+                  <p className="text-xs font-bold text-slate-500 mb-1">Recent Quizzes</p>
+                  <h3 className="text-2xl font-black text-slate-900">{quizzes.length || 3}</h3>
+                  <button onClick={() => navigate('/teacher/quizzes')} className="text-[11px] text-blue-600 font-bold hover:underline mt-2 inline-block cursor-pointer">
+                    View All →
+                  </button>
+                </div>
+              </div>
+
+              {/* 4 Quick Action Cards (Matching Panel 3 Reference) */}
+              <div>
+                <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-3">Quick Actions</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Action 1: Add YouTube Video */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
+                    <div>
+                      <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center mb-3">
+                        <Video className="w-5 h-5" />
+                      </div>
+                      <h4 className="font-extrabold text-slate-900 text-sm">Add YouTube Video</h4>
+                      <p className="text-xs text-slate-500 mt-1">Upload educational videos for your students</p>
+                    </div>
+                    <button
+                      onClick={openAddVideoModal}
+                      className="w-full mt-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs"
+                    >
+                      Add Video
+                    </button>
+                  </div>
+
+                  {/* Action 2: Lesson Uploads */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
+                    <div>
+                      <div className="w-10 h-10 rounded-xl bg-cyan-100 text-cyan-600 flex items-center justify-center mb-3">
+                        <BookOpen className="w-5 h-5" />
+                      </div>
+                      <h4 className="font-extrabold text-slate-900 text-sm">Lesson Uploads</h4>
+                      <p className="text-xs text-slate-500 mt-1">Share notes, PDFs, resources</p>
+                    </div>
+                    <button
+                      onClick={() => navigate('/teacher/lessons')}
+                      className="w-full mt-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs"
+                    >
+                      Upload
+                    </button>
+                  </div>
+
+                  {/* Action 3: Homework */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
+                    <div>
+                      <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center mb-3">
+                        <FileCheck className="w-5 h-5" />
+                      </div>
+                      <h4 className="font-extrabold text-slate-900 text-sm">Homework</h4>
+                      <p className="text-xs text-slate-500 mt-1">Create and manage homework</p>
+                    </div>
+                    <button
+                      onClick={() => setShowHwModal(true)}
+                      className="w-full mt-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs"
+                    >
+                      Create
+                    </button>
+                  </div>
+
+                  {/* Action 4: AI Quiz Generator */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
+                    <div>
+                      <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center mb-3">
+                        <Sparkles className="w-5 h-5" />
+                      </div>
+                      <h4 className="font-extrabold text-slate-900 text-sm">AI Quiz Generator</h4>
+                      <p className="text-xs text-slate-500 mt-1">Generate quizzes with AI</p>
+                    </div>
+                    <button
+                      onClick={() => navigate('/teacher/quizzes')}
+                      className="w-full mt-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs"
+                    >
+                      Generate
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Row: Student Insights & Recent Activity (Matching Panel 3 Reference) */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Student Insights Box */}
+                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-2 text-blue-600">
+                      <BarChart2 className="w-5 h-5" />
+                      <h3 className="font-extrabold text-slate-900 text-base">Student Insights</h3>
+                    </div>
+                    <p className="text-xs text-slate-500 mb-4">View performance and identify students needing attention</p>
+                    
+                    <div className="space-y-3">
+                      {analytics.slice(0, 3).map((st: any, idx) => (
+                        <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between">
+                          <div>
+                            <p className="font-bold text-xs text-slate-800">{st.studentName}</p>
+                            <p className="text-[11px] text-slate-500">Weak Topics: {st.weakTopics?.join(', ') || 'None'}</p>
+                          </div>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${st.score < 70 ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                            {st.score}% Avg
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => navigate('/teacher/analytics')}
+                    className="w-full mt-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
+                  >
+                    View Insights
+                  </button>
+                </div>
+
+                {/* Recent Activity Timeline */}
+                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
+                  <h3 className="font-extrabold text-slate-900 text-base mb-3">Recent Activity</h3>
+                  <div className="space-y-3.5">
+                    <div className="flex items-start gap-3 text-xs">
+                      <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 mt-0.5">
+                        <FileCheck className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-bold text-slate-800">New homework assigned - Chapter 5</p>
+                        <p className="text-[11px] text-slate-400">2 hours ago</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3 text-xs">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 mt-0.5">
+                        <HelpCircle className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-bold text-slate-800">Quiz completed - Fractions</p>
+                        <p className="text-[11px] text-slate-400">4 hours ago</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-3 text-xs">
+                      <div className="w-7 h-7 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center shrink-0 mt-0.5">
+                        <Video className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-bold text-slate-800">YouTube video added - Algebra Basics</p>
+                        <p className="text-[11px] text-slate-400">Yesterday</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-            <button onClick={() => setNotification('')}>
-              <X className="w-5 h-5 text-white/80 hover:text-white" />
-            </button>
-          </div>
-        )}
+          )}
 
-        {/* Dashboard Navigation Tabs */}
-        <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3 mb-6">
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`px-4 py-2 rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'overview' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <BookOpen className="w-4 h-4" /> Overview & Alerts
-          </button>
-          <button
-            onClick={() => setActiveTab('lessons')}
-            className={`px-4 py-2 rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'lessons' ? 'bg-purple-600 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Video className="w-4 h-4" /> Lesson Uploads ({lessons.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('homework')}
-            className={`px-4 py-2 rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'homework' ? 'bg-emerald-600 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <FileCheck className="w-4 h-4" /> Homework Module ({homeworks.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('ai-quiz')}
-            className={`px-4 py-2 rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'ai-quiz' ? 'bg-amber-500 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Sparkles className="w-4 h-4" /> AI Quiz Generator ({quizzes.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('analytics')}
-            className={`px-4 py-2 rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'analytics' ? 'bg-pink-600 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <BarChart2 className="w-4 h-4" /> Student Analytics
-          </button>
-          <button
-            onClick={() => setActiveTab('communication')}
-            className={`px-4 py-2 rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'communication' ? 'bg-teal-600 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <MessageSquare className="w-4 h-4" /> Parent Chat & Hours
-          </button>
-        </div>
+          {/* TAB 2: LESSONS & YOUTUBE VIDEOS (CRUD) */}
+          {isLessons && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+                <div>
+                  <h2 className="font-extrabold text-slate-900 text-lg">YouTube Educational Videos & Lessons</h2>
+                  <p className="text-xs text-slate-500">Manage video resources and concept lessons for your students</p>
+                </div>
+                <button
+                  onClick={openAddVideoModal}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 cursor-pointer shadow-xs"
+                >
+                  <Plus className="w-4 h-4" /> Add YouTube Video
+                </button>
+              </div>
 
-        {/* TAB 1: OVERVIEW & ALERTS */}
-        {activeTab === 'overview' && (
-          <div className="space-y-8">
-            <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 text-white p-6 sm:p-8 rounded-3xl shadow-lg">
-              <h2 className="text-2xl sm:text-3xl font-black mb-2">Welcome Back, {user?.name}! 📚</h2>
-              <p className="text-indigo-100 text-sm max-w-2xl">
-                Upload lessons, YouTube concept videos, generate AI quizzes, manage student homework submissions, and view color-coded student risk analytics.
-              </p>
+              {lessons.length === 0 ? (
+                /* Empty State matching Requirement 15 */
+                <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center max-w-lg mx-auto shadow-xs">
+                  <div className="w-16 h-16 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-4">
+                    <Video className="w-8 h-8" />
+                  </div>
+                  <h3 className="font-extrabold text-slate-900 text-lg mb-1">No videos added yet.</h3>
+                  <p className="text-xs text-slate-500 mb-6 max-w-sm mx-auto">
+                    Add an educational YouTube video to help your students learn.
+                  </p>
+                  <button
+                    onClick={openAddVideoModal}
+                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer inline-flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" /> Add YouTube Video
+                  </button>
+                </div>
+              ) : (
+                /* Grid of Video Cards (Requirement 10) */
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {lessons.map((lesson) => {
+                    const videoId = lesson.youtubeVideoId || extractYouTubeVideoId(lesson.youtubeUrl);
+                    const thumbnail = lesson.thumbnail || (videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : '');
+
+                    return (
+                      <div
+                        key={lesson._id || lesson.id}
+                        className="bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden flex flex-col justify-between"
+                      >
+                        <div>
+                          {/* Thumbnail Container */}
+                          <div className="relative aspect-video bg-slate-900 overflow-hidden group">
+                            {thumbnail ? (
+                              <img src={thumbnail} alt={lesson.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-slate-500">
+                                <Video className="w-10 h-10" />
+                              </div>
+                            )}
+                            <button
+                              onClick={() => setWatchingVideo(lesson)}
+                              className="absolute inset-0 m-auto w-12 h-12 rounded-full bg-rose-600/90 text-white flex items-center justify-center shadow-lg hover:scale-110 transition-transform cursor-pointer"
+                            >
+                              <Play className="w-5 h-5 fill-white ml-0.5" />
+                            </button>
+                          </div>
+
+                          {/* Card Content */}
+                          <div className="p-5">
+                            {/* Badges */}
+                            <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
+                              <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md text-[10px] font-bold">
+                                {lesson.subject}
+                              </span>
+                              <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md text-[10px] font-bold">
+                                {lesson.className || lesson.grade}
+                              </span>
+                            </div>
+
+                            <h3 className="font-extrabold text-slate-900 text-base mb-1 line-clamp-1">{lesson.title}</h3>
+                            <p className="text-xs text-slate-500 mb-3 line-clamp-2">{lesson.description || 'Educational concept video.'}</p>
+
+                            <div className="text-[11px] text-slate-400 space-y-0.5 border-t border-slate-100 pt-2.5">
+                              <p><span className="font-semibold text-slate-600">Chapter:</span> {lesson.chapter || 'Chapter 1'}</p>
+                              <p><span className="font-semibold text-slate-600">Topic:</span> {lesson.topic || 'General Topic'}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="p-4 bg-slate-50/70 border-t border-slate-100 flex items-center justify-between">
+                          <button
+                            onClick={() => setWatchingVideo(lesson)}
+                            className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+                          >
+                            <Play className="w-3.5 h-3.5" /> Watch
+                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => openEditVideoModal(lesson)}
+                              className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg cursor-pointer"
+                              title="Edit Video"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setDeletingVideoId(lesson._id || lesson.id)}
+                              className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                              title="Delete Video"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
+          )}
 
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4">
-                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
-                  <BookOpen className="w-6 h-6" />
-                </div>
+          {/* TAB 3: HOMEWORK MODULE */}
+          {isHomework && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
                 <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase">Today's Classes</p>
-                  <p className="text-2xl font-black text-slate-900">{stats?.todaysClassesCount || 4} Sessions</p>
+                  <h2 className="font-extrabold text-slate-900 text-lg">Homework Assignments & Reviews</h2>
+                  <p className="text-xs text-slate-500">Create homework assignments and evaluate student submissions</p>
                 </div>
+                <button
+                  onClick={() => setShowHwModal(true)}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 cursor-pointer shadow-xs"
+                >
+                  <Plus className="w-4 h-4" /> Create Homework
+                </button>
               </div>
 
-              <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4">
-                <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl">
-                  <FileCheck className="w-6 h-6" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase">Active Homework</p>
-                  <p className="text-2xl font-black text-slate-900">{stats?.pendingHomeworksCount || homeworks.length} Assignments</p>
-                </div>
-              </div>
+              <div className="space-y-4">
+                {homeworks.map((hw) => (
+                  <div key={hw._id || hw.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3 mb-3">
+                      <div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
+                          Due: {hw.dueDate}
+                        </span>
+                        <h3 className="font-black text-slate-900 text-base mt-1">{hw.title}</h3>
+                        <p className="text-xs text-slate-500">{hw.description}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-bold text-slate-400">Total Marks</p>
+                        <p className="text-base font-black text-slate-800">{hw.totalMarks} pts</p>
+                      </div>
+                    </div>
 
-              <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4">
-                <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl">
-                  <Sparkles className="w-6 h-6" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase">AI Quizzes Published</p>
-                  <p className="text-2xl font-black text-slate-900">{stats?.quizzesCount || quizzes.length} Quizzes</p>
-                </div>
-              </div>
-
-              <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4">
-                <div className="p-3 bg-purple-50 text-purple-600 rounded-2xl">
-                  <Clock className="w-6 h-6" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase">Weekly Completion</p>
-                  <p className="text-2xl font-black text-slate-900">{stats?.weeklyProgress || 88}% Progress</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Alerts Panel */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-              <h3 className="text-lg font-extrabold text-slate-900 mb-4 flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-amber-500" /> Student Progress Alerts
-              </h3>
-              <div className="space-y-3">
-                {alerts.map((alert) => (
-                  <div key={alert.id} className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-sm font-semibold flex items-center gap-3">
-                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                    <span>{alert.text}</span>
+                    <div>
+                      <h4 className="font-bold text-xs text-slate-700 mb-2">
+                        Submissions ({hw.submissions?.length || 0})
+                      </h4>
+                      {hw.submissions?.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic">No submissions yet.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {hw.submissions?.map((sub: any) => (
+                            <div key={sub._id || sub.id} className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="font-bold text-xs text-slate-800">{sub.studentName}</span>
+                                <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">
+                                  {sub.status || 'submitted'}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-600 mb-3">{sub.content}</p>
+                              <button
+                                onClick={() => {
+                                  setSelectedSub({ hwId: hw._id || hw.id, submissionId: sub._id || sub.id, sub });
+                                  setGradingMarks(sub.marksObtained || 90);
+                                  setGradingFeedback(sub.feedback || 'Well done!');
+                                }}
+                                className="px-3 py-1.5 bg-blue-600 text-white font-bold rounded-lg text-xs hover:bg-blue-700 cursor-pointer"
+                              >
+                                Grade Submission
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* TAB 2: LESSON MANAGEMENT */}
-        {activeTab === 'lessons' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-              <div>
-                <h2 className="font-extrabold text-slate-900 text-lg">Lesson Repository</h2>
-                <p className="text-xs text-slate-500">Upload notes, PDFs, worksheets, and YouTube videos for students</p>
-              </div>
-              <button
-                onClick={() => setShowLessonModal(true)}
-                className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-md cursor-pointer"
-              >
-                <Plus className="w-4 h-4" /> Upload New Lesson
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {lessons.map((lesson) => (
-                <div key={lesson._id || lesson.id} className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col justify-between p-6">
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-black uppercase">
-                        {lesson.category} • {lesson.contentType}
-                      </span>
-                      <button onClick={() => handleDeleteLesson(lesson._id || lesson.id)} className="text-slate-400 hover:text-rose-600">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    <h3 className="font-extrabold text-slate-900 text-lg mb-1">{lesson.title}</h3>
-                    <p className="text-xs text-slate-600 mb-4">{lesson.description}</p>
-
-                    {/* YouTube Video Embed Preview */}
-                    {lesson.youtubeUrl && (
-                      <div className="rounded-2xl overflow-hidden mb-4 border border-slate-200 bg-slate-900 aspect-video relative">
-                        <iframe
-                          src={lesson.youtubeUrl}
-                          title={lesson.title}
-                          className="w-full h-full"
-                          allowFullScreen
-                        ></iframe>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-                    <span>{lesson.grade} • {lesson.subject}</span>
-                    <span className="font-semibold text-purple-600">{lesson.teacherName}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: HOMEWORK MODULE */}
-        {activeTab === 'homework' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-              <div>
-                <h2 className="font-extrabold text-slate-900 text-lg">Homework Assignments & Review</h2>
-                <p className="text-xs text-slate-500">Create homework and grade student notebook submissions</p>
-              </div>
-              <button
-                onClick={() => setShowHwModal(true)}
-                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-md cursor-pointer"
-              >
-                <Plus className="w-4 h-4" /> Create Homework
-              </button>
-            </div>
-
+          {/* TAB 4: AI QUIZ GENERATOR */}
+          {isQuizzes && (
             <div className="space-y-6">
-              {homeworks.map((hw) => (
-                <div key={hw._id || hw.id} className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4 mb-4">
-                    <div>
-                      <span className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-xs font-black">
-                        Due: {hw.dueDate}
-                      </span>
-                      <h3 className="text-xl font-extrabold text-slate-900 mt-2">{hw.title}</h3>
-                      <p className="text-xs text-slate-600">{hw.description}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-slate-500">Total Marks</p>
-                      <p className="text-xl font-black text-slate-900">{hw.totalMarks} pts</p>
-                    </div>
-                  </div>
-
-                  {/* Submissions Section */}
-                  <div>
-                    <h4 className="font-extrabold text-slate-800 text-sm mb-3">Student Submissions ({hw.submissions?.length || 0})</h4>
-                    {hw.submissions?.length === 0 ? (
-                      <p className="text-xs text-slate-400 italic">No submissions yet.</p>
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {hw.submissions?.map((sub: any) => (
-                          <div key={sub._id || sub.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col justify-between">
-                            <div>
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="font-bold text-slate-900 text-sm">{sub.studentName}</span>
-                                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                                  sub.status === 'graded' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'
-                                }`}>
-                                  {sub.status}
-                                </span>
-                              </div>
-                              <p className="text-xs text-slate-700 bg-white p-2.5 rounded-xl border border-slate-200 mb-3">{sub.content}</p>
-                              {sub.status === 'graded' && (
-                                <div className="text-xs bg-emerald-50 text-emerald-900 p-2.5 rounded-xl border border-emerald-200 mb-2">
-                                  <strong>Grade:</strong> {sub.marksObtained}/{hw.totalMarks} | <strong>Feedback:</strong> {sub.feedback}
-                                </div>
-                              )}
-                            </div>
-
-                            <button
-                              onClick={() => {
-                                setSelectedSub({ hwId: hw._id || hw.id, subId: sub._id || sub.id, name: sub.studentName });
-                                setGradingMarks(sub.marksObtained || 90);
-                                setGradingFeedback(sub.feedback || 'Great work!');
-                              }}
-                              className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs mt-2"
-                            >
-                              Grade / Review Submission
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
+                <div className="flex items-center gap-2 mb-2 text-purple-600">
+                  <Sparkles className="w-5 h-5" />
+                  <h2 className="font-black text-slate-900 text-lg">AI Quiz Generator</h2>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
+                <p className="text-xs text-slate-500 mb-5">
+                  Generate targeted, syllabus-accurate quizzes with zero cross-subject hallucination and smart deduplication.
+                </p>
 
-        {/* TAB 4: AI QUIZ GENERATOR */}
-        {activeTab === 'ai-quiz' && (
-          <div className="space-y-8">
-            <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-pink-500 text-white p-6 sm:p-8 rounded-3xl shadow-lg">
-              <div className="flex items-center gap-2 mb-2 text-amber-100 text-xs font-bold uppercase tracking-wider">
-                <Sparkles className="w-4 h-4" /> Subject-Specific AI Assessment Engine
-              </div>
-              <h2 className="text-2xl sm:text-3xl font-black mb-2">AI Quiz Generator ⚡</h2>
-              <p className="text-amber-50 text-sm max-w-xl">
-                Generate highly targeted, non-repetitive subject quizzes. AI analyzes your Subject, Chapter, Topic, and optional Study Material to build custom MCQs, True/False, Fill-in-the-blanks, and Short Answer questions!
-              </p>
-            </div>
-
-            {/* AI Generator Form */}
-            <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm max-w-3xl mx-auto">
-              <h3 className="text-lg font-black text-slate-900 mb-4 flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-amber-500" /> Quiz Configuration
-              </h3>
-              <form onSubmit={handleGenerateAiQuiz} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Class / Grade Level</label>
-                    {user?.grades && user.grades.length > 0 ? (
-                      <select
-                        value={aiQuizData.grade}
-                        onChange={(e) => setAiQuizData({ ...aiQuizData, grade: e.target.value })}
-                        className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
-                        required
-                      >
-                        {user.grades.map((g: string) => (
-                          <option key={g} value={g}>{g}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <select
-                        value={aiQuizData.grade}
-                        onChange={(e) => setAiQuizData({ ...aiQuizData, grade: e.target.value })}
-                        className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
-                      >
-                        <option value="Grade 1">Grade 1</option>
-                        <option value="Grade 2">Grade 2</option>
-                        <option value="Grade 3">Grade 3</option>
-                        <option value="Grade 4">Grade 4</option>
-                        <option value="Grade 5">Grade 5</option>
-                        <option value="Grade 6">Grade 6</option>
-                        <option value="Grade 7">Grade 7</option>
-                        <option value="Grade 8">Grade 8</option>
-                        <option value="Grade 9">Grade 9</option>
-                        <option value="Grade 10">Grade 10</option>
-                        <option value="Grade 11">Grade 11</option>
-                        <option value="Grade 12">Grade 12</option>
-                      </select>
-                    )}
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Class</label>
+                    <select
+                      value={aiQuizData.grade}
+                      onChange={(e) => setAiQuizData({ ...aiQuizData, grade: e.target.value })}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold"
+                    >
+                      {curriculum.assignedClasses?.map((cls: string) => (
+                        <option key={cls} value={cls}>{cls}</option>
+                      ))}
+                    </select>
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Subject</label>
-                    {user?.subjects && user.subjects.length > 0 ? (
-                      <select
-                        value={aiQuizData.subject}
-                        onChange={(e) => setAiQuizData({ ...aiQuizData, subject: e.target.value })}
-                        className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
-                        required
-                      >
-                        {user.subjects.map((s: string) => (
-                          <option key={s} value={s}>{s}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        type="text"
-                        value={aiQuizData.subject}
-                        onChange={(e) => setAiQuizData({ ...aiQuizData, subject: e.target.value })}
-                        placeholder="e.g. Mathematics, Physics, Biology, Java"
-                        className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
-                        required
-                      />
-                    )}
+                    <select
+                      value={aiQuizData.subject}
+                      onChange={(e) => setAiQuizData({ ...aiQuizData, subject: e.target.value })}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold"
+                    >
+                      {curriculum.assignedSubjects?.map((subj: string) => (
+                        <option key={subj} value={subj}>{subj}</option>
+                      ))}
+                    </select>
                   </div>
-                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Chapter Name / No.</label>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Chapter</label>
                     <input
                       type="text"
                       value={aiQuizData.chapter}
                       onChange={(e) => setAiQuizData({ ...aiQuizData, chapter: e.target.value })}
-                      placeholder="e.g. Chapter 4: Equations"
-                      className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
-                      required
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Topic Name</label>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Topic</label>
                     <input
                       type="text"
                       value={aiQuizData.topic}
                       onChange={(e) => setAiQuizData({ ...aiQuizData, topic: e.target.value })}
-                      placeholder="e.g. Quadratic Equations, Photosynthesis, Java Classes"
-                      className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
-                      required
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold"
                     />
                   </div>
-                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Difficulty Level</label>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Difficulty</label>
                     <select
                       value={aiQuizData.difficulty}
                       onChange={(e) => setAiQuizData({ ...aiQuizData, difficulty: e.target.value })}
-                      className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold"
                     >
-                      <option value="Easy">Easy (Recall & Definitions)</option>
-                      <option value="Medium">Medium (Application)</option>
-                      <option value="Hard">Hard (Complex Reasoning)</option>
+                      <option value="Easy">Easy</option>
+                      <option value="Medium">Medium</option>
+                      <option value="Hard">Hard</option>
                     </select>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Question Type</label>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Number of Questions</label>
                     <select
-                      value={aiQuizData.questionType}
-                      onChange={(e) => setAiQuizData({ ...aiQuizData, questionType: e.target.value })}
-                      className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
-                    >
-                      <option value="mixed">Mixed Question Types</option>
-                      <option value="mcq">MCQs Only (4 Options)</option>
-                      <option value="true_false">True / False Only</option>
-                      <option value="fill_blank">Fill in the Blank Only</option>
-                      <option value="short">Short Answer Only</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">No. of Questions</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="15"
                       value={aiQuizData.numberOfQuestions}
                       onChange={(e) => setAiQuizData({ ...aiQuizData, numberOfQuestions: Number(e.target.value) })}
-                      className="w-full p-3 rounded-xl border border-slate-200 text-sm focus:outline-indigo-500"
-                    />
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold"
+                    >
+                      <option value={3}>3 Questions</option>
+                      <option value={4}>4 Questions</option>
+                      <option value={5}>5 Questions</option>
+                      <option value={10}>10 Questions</option>
+                    </select>
                   </div>
-                </div>
-
-                {/* Uploaded Study Material / Paste Notes Section */}
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowMaterialInput(!showMaterialInput)}
-                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
-                  >
-                    {showMaterialInput ? '➖ Hide Source Study Material' : '➕ Attach Study Notes / Textbook Material (Optional)'}
-                  </button>
-
-                  {showMaterialInput && (
-                    <div className="mt-3 p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Source File / Chapter Name</label>
-                        <input
-                          type="text"
-                          value={aiQuizData.sourceMaterialName}
-                          onChange={(e) => setAiQuizData({ ...aiQuizData, sourceMaterialName: e.target.value })}
-                          placeholder="e.g. Unit_3_Photosynthesis_Notes.pdf"
-                          className="w-full p-2.5 rounded-xl border border-slate-200 text-xs bg-white focus:outline-indigo-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Source Material Text / Notes</label>
-                        <textarea
-                          rows={4}
-                          value={aiQuizData.sourceMaterialText}
-                          onChange={(e) => setAiQuizData({ ...aiQuizData, sourceMaterialText: e.target.value })}
-                          placeholder="Paste study guide text, textbook excerpt, or notes here..."
-                          className="w-full p-2.5 rounded-xl border border-slate-200 text-xs bg-white focus:outline-indigo-500"
-                        ></textarea>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 <button
-                  type="submit"
+                  onClick={handleGenerateQuiz}
                   disabled={isGeneratingQuiz}
-                  className="w-full py-4 bg-gradient-to-r from-amber-500 to-pink-500 text-white font-black rounded-2xl shadow-lg hover:from-amber-600 hover:to-pink-600 transition-all flex items-center justify-center gap-2 cursor-pointer text-sm mt-4"
+                  className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 cursor-pointer shadow-xs disabled:opacity-70"
                 >
                   {isGeneratingQuiz ? (
-                    <div className="flex items-center gap-2">
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>Creating your subject-specific quiz...</span>
-                    </div>
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      <span>Generating with Gemini AI...</span>
+                    </>
                   ) : (
                     <>
-                      <Sparkles className="w-5 h-5" /> Generate AI Quiz Preview
+                      <Sparkles className="w-4 h-4" /> Generate Quiz
                     </>
                   )}
                 </button>
-              </form>
-            </div>
-
-            {/* INTERACTIVE QUIZ PREVIEW COMPONENT */}
-            {previewQuiz && (
-              <div className="bg-indigo-50 border-2 border-indigo-200 p-6 sm:p-8 rounded-3xl space-y-6 shadow-md">
-                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-indigo-200 pb-4">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <span className="px-3 py-1 bg-indigo-600 text-white text-xs font-black rounded-full uppercase">
-                        Draft Preview
-                      </span>
-                      <span className="px-3 py-1 bg-amber-100 text-amber-800 text-xs font-bold rounded-full">
-                        {previewQuiz.subject} • {previewQuiz.grade}
-                      </span>
-                      <span className="px-3 py-1 bg-slate-200 text-slate-700 text-xs font-bold rounded-full">
-                        Ch: {previewQuiz.chapter}
-                      </span>
-                      <span className="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full">
-                        Difficulty: {previewQuiz.difficulty}
-                      </span>
-                    </div>
-                    <h3 className="text-2xl font-black text-slate-900">{previewQuiz.title}</h3>
-                    {previewQuiz.sourceMaterialName && (
-                      <p className="text-xs text-indigo-700 font-bold mt-1">
-                        📄 Questions generated from: <span className="underline">{previewQuiz.sourceMaterialName}</span>
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={handleAddQuestionToPreview}
-                      disabled={regeneratingIndex !== null}
-                      className="px-4 py-2 bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-100 font-bold rounded-xl text-xs flex items-center gap-1 cursor-pointer"
-                    >
-                      ➕ Add Question
-                    </button>
-                    <button
-                      onClick={() => setPreviewQuiz(null)}
-                      className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
-                    >
-                      Discard Draft
-                    </button>
-                  </div>
-                </div>
-
-                {/* Question List Preview */}
-                <div className="space-y-4">
-                  {previewQuiz.questions?.map((q: any, idx: number) => (
-                    <div key={idx} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-                      {editingQIndex === idx ? (
-                        /* Inline Edit Question Form */
-                        <div className="space-y-3">
-                          <p className="text-xs font-bold text-slate-500 uppercase">Editing Question #{idx + 1}</p>
-                          <textarea
-                            rows={2}
-                            value={editQForm.question}
-                            onChange={(e) => setEditQForm({ ...editQForm, question: e.target.value })}
-                            className="w-full p-2.5 rounded-xl border border-slate-300 text-xs font-bold"
-                          ></textarea>
-
-                          {editQForm.type === 'mcq' && (
-                            <div className="grid grid-cols-2 gap-2">
-                              {editQForm.options?.map((opt: string, optIdx: number) => (
-                                <input
-                                  key={optIdx}
-                                  type="text"
-                                  value={opt}
-                                  onChange={(e) => {
-                                    const opts = [...editQForm.options];
-                                    opts[optIdx] = e.target.value;
-                                    setEditQForm({ ...editQForm, options: opts });
-                                  }}
-                                  className="p-2 border border-slate-200 rounded-lg text-xs"
-                                />
-                              ))}
-                            </div>
-                          )}
-
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase">Correct Answer</label>
-                            <input
-                              type="text"
-                              value={editQForm.correctAnswer}
-                              onChange={(e) => setEditQForm({ ...editQForm, correctAnswer: e.target.value })}
-                              className="w-full p-2 border border-slate-200 rounded-lg text-xs font-bold text-emerald-700"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-500 uppercase">Explanation</label>
-                            <input
-                              type="text"
-                              value={editQForm.explanation}
-                              onChange={(e) => setEditQForm({ ...editQForm, explanation: e.target.value })}
-                              className="w-full p-2 border border-slate-200 rounded-lg text-xs text-slate-600"
-                            />
-                          </div>
-
-                          <div className="flex gap-2 justify-end">
-                            <button
-                              onClick={() => handleSaveEditQuestion(idx)}
-                              className="px-3 py-1.5 bg-emerald-600 text-white font-bold text-xs rounded-lg"
-                            >
-                              Save Changes
-                            </button>
-                            <button
-                              onClick={() => setEditingQIndex(null)}
-                              className="px-3 py-1.5 bg-slate-200 text-slate-700 font-bold text-xs rounded-lg"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        /* Standard Question View */
-                        <div>
-                          <div className="flex items-start justify-between gap-4 mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-800 font-black text-xs flex items-center justify-center">
-                                Q{idx + 1}
-                              </span>
-                              <span className="px-2.5 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold uppercase rounded-md border border-slate-200">
-                                {q.type}
-                              </span>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => handleRegenerateQuestion(idx)}
-                                disabled={regeneratingIndex !== null}
-                                title="Regenerate this specific question"
-                                className="px-3 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold rounded-lg text-xs flex items-center gap-1 cursor-pointer transition-all"
-                              >
-                                {regeneratingIndex === idx ? (
-                                  <div className="w-3.5 h-3.5 border-2 border-amber-700 border-t-transparent rounded-full animate-spin"></div>
-                                ) : (
-                                  <>⚡ Regenerate</>
-                                )}
-                              </button>
-
-                              <button
-                                onClick={() => handleStartEditQuestion(idx)}
-                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs cursor-pointer"
-                              >
-                                ✏️ Edit
-                              </button>
-
-                              <button
-                                onClick={() => handleDeleteQuestionFromPreview(idx)}
-                                className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-xs cursor-pointer"
-                              >
-                                🗑️
-                              </button>
-                            </div>
-                          </div>
-
-                          <h4 className="font-extrabold text-slate-900 text-sm mb-2">{q.question}</h4>
-
-                          {/* Options display */}
-                          {q.options && q.options.length > 0 && (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 my-2">
-                              {q.options.map((opt: string, optIdx: number) => {
-                                const isCorrect = opt.trim().toLowerCase() === q.correctAnswer.trim().toLowerCase();
-                                return (
-                                  <div
-                                    key={optIdx}
-                                    className={`p-2.5 rounded-xl text-xs font-semibold border ${
-                                      isCorrect
-                                        ? 'bg-emerald-50 text-emerald-900 border-emerald-300 font-bold'
-                                        : 'bg-slate-50 text-slate-700 border-slate-200'
-                                    }`}
-                                  >
-                                    {String.fromCharCode(65 + optIdx)}. {opt} {isCorrect && '✓'}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          <div className="mt-2 pt-2 border-t border-slate-100 text-xs">
-                            <span className="font-bold text-emerald-700">Answer: {q.correctAnswer}</span>
-                            {q.explanation && <p className="text-slate-500 mt-0.5">💡 {q.explanation}</p>}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="pt-2 flex justify-end gap-4">
-                  <button
-                    onClick={handlePublishQuiz}
-                    disabled={isSavingQuiz || !previewQuiz.questions.length}
-                    className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-black rounded-2xl shadow-lg hover:from-emerald-600 hover:to-teal-700 transition-all flex items-center justify-center gap-2 cursor-pointer text-sm"
-                  >
-                    {isSavingQuiz ? (
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    ) : (
-                      <>
-                        <Sparkles className="w-5 h-5" /> Approve & Publish AI Quiz Now
-                      </>
-                    )}
-                  </button>
-                </div>
               </div>
-            )}
 
-            {/* Published Quizzes List */}
-            <div className="space-y-4">
-              <h3 className="text-xl font-extrabold text-slate-900">Published Quizzes ({quizzes.length})</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {quizzes.map((q) => (
-                  <div key={q._id || q.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
+              {/* Quiz Preview */}
+              {previewQuiz && (
+                <div className="bg-white p-6 rounded-3xl border border-purple-200 shadow-md space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div>
+                      <h3 className="font-extrabold text-slate-900 text-base">{previewQuiz.title}</h3>
+                      <p className="text-xs text-slate-500">
+                        {previewQuiz.grade} • {previewQuiz.subject} • {previewQuiz.chapter} • {previewQuiz.topic}
+                      </p>
+                    </div>
+                    <button
+                      onClick={handlePublishQuiz}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer"
+                    >
+                      Publish Quiz
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    {previewQuiz.questions?.map((q: any, idx: number) => (
+                      <div key={idx} className="p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                        <p className="font-bold text-xs text-slate-900 mb-2">
+                          Q{idx + 1}: {q.question}
+                        </p>
+                        {q.options && q.options.length > 0 && (
+                          <div className="grid grid-cols-2 gap-2 mb-2">
+                            {q.options.map((opt: string, optIdx: number) => (
+                              <div
+                                key={optIdx}
+                                className={`p-2 rounded-lg text-xs ${
+                                  opt === q.correctAnswer
+                                    ? 'bg-emerald-100 font-bold text-emerald-800 border border-emerald-300'
+                                    : 'bg-white text-slate-700 border border-slate-200'
+                                }`}
+                              >
+                                {opt}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-[11px] text-slate-500">
+                          <span className="font-semibold text-slate-700">Answer:</span> {q.correctAnswer} • <span className="font-semibold text-slate-700">Explanation:</span> {q.explanation}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 5: AI INSIGHTS */}
+          {isAnalytics && (
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-4">
+              <h2 className="font-black text-slate-900 text-lg">Student Performance Analytics & Early Alerts</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {analytics.map((st: any, idx: number) => (
+                  <div key={idx} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-black">
-                          {q.difficulty || 'Medium'} • {q.grade}
+                        <h4 className="font-bold text-sm text-slate-900">{st.studentName}</h4>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${st.score < 70 ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                          {st.score}% Avg
                         </span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-400 font-semibold">{q.questions?.length || 0} Questions</span>
-                          <button
-                            onClick={() => handleDeleteQuiz(q._id || q.id)}
-                            title="Delete Quiz"
-                            className="p-1 text-slate-400 hover:text-rose-600 text-xs cursor-pointer"
-                          >
-                            🗑️
-                          </button>
-                        </div>
                       </div>
-
-                      <h4 className="font-black text-slate-900 text-lg">{q.title}</h4>
-                      <p className="text-xs text-slate-500 mb-1">
-                        Subject: <span className="font-bold text-slate-700">{q.subject}</span> • Chapter: <span className="font-bold text-slate-700">{q.chapter || 'Ch. 1'}</span>
-                      </p>
-                      <p className="text-xs text-slate-500 mb-3">Topic: <span className="font-bold text-slate-700">{q.topic}</span></p>
-
-                      {q.sourceMaterialName && (
-                        <p className="text-[10px] text-indigo-600 font-bold mb-3">
-                          📄 Questions generated from: {q.sourceMaterialName}
-                        </p>
-                      )}
-
-                      <div className="space-y-2 pt-3 border-t border-slate-100 max-h-60 overflow-y-auto pr-1">
-                        {q.questions?.map((ques: any, idx: number) => (
-                          <div key={idx} className="p-3 bg-slate-50 rounded-xl text-xs">
-                            <p className="font-bold text-slate-800">Q{idx + 1}: {ques.question}</p>
-                            <p className="text-emerald-600 font-semibold mt-1">✓ Answer: {ques.correctAnswer}</p>
-                          </div>
-                        ))}
-                      </div>
+                      <p className="text-xs text-slate-500 mb-1">Grade: {st.grade}</p>
+                      <p className="text-xs text-rose-600 font-medium">Weak Topics: {st.weakTopics?.join(', ') || 'None'}</p>
+                      <p className="text-xs text-emerald-600 font-medium">Strong Topics: {st.strongTopics?.join(', ') || 'All core concepts'}</p>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* TAB 5: STUDENT ANALYTICS */}
-        {activeTab === 'analytics' && (
-          <div className="space-y-6">
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-              <h2 className="font-extrabold text-slate-900 text-lg">Classroom Student Performance & Risk Cards</h2>
-              <p className="text-xs text-slate-500">Individual student learning speed, weak/strong topics, and AI intervention plans</p>
+          {/* TAB 6: CLASSES */}
+          {subRoute === 'classes' && (
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
+              <h2 className="font-black text-slate-900 text-lg mb-4">Assigned Classes</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                {curriculum.assignedClasses?.map((cls: string, idx: number) => (
+                  <div key={idx} className="p-5 bg-blue-50/50 rounded-2xl border border-blue-200">
+                    <h4 className="font-extrabold text-blue-900 text-base">{cls}</h4>
+                    <p className="text-xs text-blue-700 mt-1">Subjects: {curriculum.assignedSubjects?.join(', ')}</p>
+                    <p className="text-[11px] text-slate-500 mt-2">Active Class assigned to {teacherName}</p>
+                  </div>
+                ))}
+              </div>
             </div>
+          )}
 
-            {analytics.length === 0 ? (
-              <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm text-center max-w-lg mx-auto space-y-4">
-                <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto text-2xl">
-                  📊
+          {/* TAB 7: PARENT CHAT & COMMUNICATIONS */}
+          {isParents && (
+            <div className="space-y-6">
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-4 mb-4 gap-2">
+                  <div>
+                    <h2 className="font-extrabold text-slate-900 text-lg">Parent Communications & Chat</h2>
+                    <p className="text-xs text-slate-500">Direct academic communication with parents regarding student progress and inquiries</p>
+                  </div>
+                  <span className="px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-full border border-emerald-200 self-start sm:self-auto">
+                    Office Hours Active (09:00 AM - 04:00 PM)
+                  </span>
                 </div>
-                <h3 className="text-lg font-black text-slate-900">No Student Performance Data Available Yet</h3>
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  Analytics cards are generated dynamically when students enroll, submit homework assignments, and attempt published quizzes.
-                </p>
-                <div className="p-4 bg-indigo-50/50 rounded-2xl text-[11px] text-indigo-900 border border-indigo-100 text-left space-y-2">
-                  <p className="font-extrabold uppercase text-[9px] tracking-wider text-indigo-700">Next Steps for Teachers:</p>
-                  <ul className="list-disc pl-4 space-y-1 font-medium">
-                    <li>Create and assign homework tasks in the **Homework Module** tab.</li>
-                    <li>Generate and publish structured quizzes in the **AI Quiz Generator** tab.</li>
-                    <li>Students must log in, complete the assignments, and submit their responses.</li>
-                  </ul>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Parent Inquiries List */}
+                  <div className="space-y-2 border-r border-slate-100 pr-0 md:pr-4">
+                    <h3 className="font-bold text-xs text-slate-400 uppercase tracking-wider mb-2">Recent Parent Inquiries</h3>
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-2xl cursor-pointer">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-xs text-slate-900">Eleanor Vance</span>
+                        <span className="text-[10px] text-blue-600 font-bold">10m ago</span>
+                      </div>
+                      <p className="text-xs text-slate-600 line-clamp-1">"Thank you for the update on Leo's Math homework."</p>
+                      <span className="text-[10px] text-slate-400">Parent of Leo Vance (Grade 4)</span>
+                    </div>
+                    <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl hover:bg-slate-100 transition-colors cursor-pointer">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-bold text-xs text-slate-900">Anita Sharma</span>
+                        <span className="text-[10px] text-slate-400">2h ago</span>
+                      </div>
+                      <p className="text-xs text-slate-500 line-clamp-1">"Could we schedule a 10-minute review session?"</p>
+                      <span className="text-[10px] text-slate-400">Parent of Rohan Sharma (Grade 4)</span>
+                    </div>
+                  </div>
+
+                  {/* Active Chat Conversation */}
+                  <div className="md:col-span-2 flex flex-col h-[420px] justify-between bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                    <div className="border-b border-slate-200 pb-2 mb-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-xs">
+                          E
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-xs text-slate-900">Eleanor Vance</h4>
+                          <p className="text-[10px] text-slate-500">Parent of Leo Vance • Grade 4</p>
+                        </div>
+                      </div>
+                      <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
+                        Online
+                      </span>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto space-y-3 py-2 pr-1">
+                      <div className="bg-white p-3 rounded-2xl max-w-md shadow-2xs border border-slate-200 text-xs text-slate-700">
+                        <p className="font-bold text-[10px] text-slate-400 mb-0.5">Eleanor Vance • 09:30 AM</p>
+                        Hello Prof. Keating, I wanted to ask about the upcoming chapter test on fractions. Leo was asking about extra practice problems.
+                      </div>
+                      <div className="bg-blue-600 text-white p-3 rounded-2xl max-w-md ml-auto shadow-2xs text-xs">
+                        <p className="font-bold text-[10px] text-blue-200 mb-0.5">You • 09:35 AM</p>
+                        Hello Mrs. Vance! I just uploaded an educational YouTube concept video and generated practice quiz questions in the student portal for Leo.
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 pt-2 border-t border-slate-200">
+                      <input
+                        type="text"
+                        placeholder="Type a message to Eleanor Vance..."
+                        className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden focus:border-blue-500"
+                      />
+                      <button className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-1 cursor-pointer">
+                        <Send className="w-3.5 h-3.5" /> Send
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {analytics.map((st) => (
-                  <div key={st.studentId} className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 flex flex-col justify-between">
+            </div>
+          )}
+
+          {/* TAB 8: SETTINGS */}
+          {isSettings && (
+            <div className="space-y-6">
+              <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-xs max-w-3xl">
+                <h2 className="font-extrabold text-slate-900 text-lg mb-1">Teacher Account Settings</h2>
+                <p className="text-xs text-slate-500 mb-6">Manage your teacher profile and academic notification settings</p>
+
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-black uppercase ${
-                            st.riskLevel === 'low'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : st.riskLevel === 'medium'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-rose-100 text-rose-800'
-                          }`}
-                        >
-                          {st.riskLevel} Risk
-                        </span>
-                        <span className="text-xs font-bold text-slate-500">{st.grade}</span>
-                      </div>
-
-                      <h3 className="text-xl font-black text-slate-900 mb-1">{st.studentName}</h3>
-                      <p className="text-xs text-slate-500 mb-4">Learning Speed: <strong className="text-slate-800">{st.learningSpeed}</strong></p>
-
-                      {/* Progress Metrics */}
-                      <div className="grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-2xl mb-4 text-center">
-                        <div>
-                          <p className="text-[10px] text-slate-400 font-bold uppercase">Attendance</p>
-                          <p className="text-base font-black text-slate-900">{st.attendance}%</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-slate-400 font-bold uppercase">Homework</p>
-                          <p className="text-base font-black text-slate-900">{st.homeworkCompletion}%</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-slate-400 font-bold uppercase">Quiz Avg</p>
-                          <p className="text-base font-black text-indigo-600">{st.quizAverage}%</p>
-                        </div>
-                      </div>
-
-                      {/* Topics */}
-                      <div className="space-y-2 text-xs mb-4">
-                        <div>
-                          <span className="font-bold text-rose-600">Weak Topics: </span>
-                          <span className="text-slate-700">{st.weakTopics?.join(', ')}</span>
-                        </div>
-                        <div>
-                          <span className="font-bold text-emerald-600">Strong Topics: </span>
-                          <span className="text-slate-700">{st.strongTopics?.join(', ')}</span>
-                        </div>
-                      </div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Full Name</label>
+                      <input
+                        type="text"
+                        value={teacherName}
+                        readOnly
+                        className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600"
+                      />
                     </div>
-
-                    {/* AI Recommendation Box */}
-                    <div className="p-3 bg-purple-50 border border-purple-200 rounded-2xl text-xs text-purple-900">
-                      <strong className="flex items-center gap-1 text-purple-700 mb-1">
-                        <Sparkles className="w-3.5 h-3.5" /> AI Recommendation:
-                      </strong>
-                      {st.aiRecommendation}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Email Address</label>
+                      <input
+                        type="email"
+                        value={user?.email || 'teacher@eduspark.ai'}
+                        readOnly
+                        className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600"
+                      />
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
 
-        {/* TAB 6: PARENT COMMUNICATION */}
-        {activeTab === 'communication' && (
-          <div className="space-y-6">
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
-              <div>
-                <h2 className="font-extrabold text-slate-900 text-lg">Parent Communication & Working Hours</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Communication is active strictly between 9:00 AM and 4:00 PM.</p>
-              </div>
-              <div
-                className={`px-4 py-2 rounded-2xl text-xs font-extrabold ${
-                  workingHours.isWorkingHours ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
-                }`}
-              >
-                {workingHours.message}
-              </div>
-            </div>
-
-            {/* Announcements Board */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-              <h3 className="font-extrabold text-slate-900 text-base mb-4">Classroom Announcements</h3>
-              <div className="space-y-3">
-                {announcements.map((ann) => (
-                  <div key={ann.id} className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100 flex items-center justify-between">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <h4 className="font-bold text-slate-900 text-sm">{ann.title}</h4>
-                      <p className="text-xs text-slate-500">Target: {ann.target}</p>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Primary Subject</label>
+                      <input
+                        type="text"
+                        value={teacherPrimarySubject}
+                        readOnly
+                        className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600"
+                      />
                     </div>
-                    <span className="text-xs font-semibold text-indigo-600 bg-white px-3 py-1 rounded-full shadow-sm">{ann.date}</span>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Assigned Grade</label>
+                      <input
+                        type="text"
+                        value={teacherAssignedClass}
+                        readOnly
+                        className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600"
+                      />
+                    </div>
                   </div>
-                ))}
+
+                  <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold text-xs text-slate-800">Homework Submission Alerts</h4>
+                      <p className="text-[11px] text-slate-500">Receive notifications when students submit homework assignments</p>
+                    </div>
+                    <span className="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full">
+                      Enabled
+                    </span>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold text-xs text-slate-800">Parent Direct Messages</h4>
+                      <p className="text-[11px] text-slate-500">Allow parents to send inquiries during school office hours</p>
+                    </div>
+                    <span className="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full">
+                      Active
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </main>
+          )}
 
-      {/* LESSON UPLOAD MODAL */}
-      {showLessonModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl relative">
-            <button onClick={() => setShowLessonModal(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600">
+      {/* ==========================================
+          ADD / EDIT YOUTUBE VIDEO MODAL
+          ========================================== */}
+      {showVideoModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setShowVideoModal(false)}
+              className="absolute right-5 top-5 text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
               <X className="w-5 h-5" />
             </button>
-            <h2 className="text-xl font-extrabold text-slate-900 mb-4">Upload New Lesson</h2>
-            <form onSubmit={handleCreateLesson} className="space-y-3">
+
+            <div className="flex items-center gap-2.5 mb-1">
+              <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center">
+                <Video className="w-4 h-4" />
+              </div>
+              <h2 className="text-lg font-black text-slate-900">
+                {isEditingVideo ? 'Edit YouTube Video' : 'Add YouTube Video'}
+              </h2>
+            </div>
+            <p className="text-xs text-slate-500 mb-5">
+              Enter video title, YouTube URL, and associate with the correct class and curriculum topic.
+            </p>
+
+            <form onSubmit={handleSaveVideo} className="space-y-4">
+              {/* Title */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Title</label>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Video Title *</label>
                 <input
                   type="text"
-                  value={lessonData.title}
-                  onChange={(e) => setLessonData({ ...lessonData, title: e.target.value })}
-                  placeholder="e.g. Fractions & Visual Diagrams"
-                  className="w-full p-3 rounded-xl border border-slate-200 text-sm"
+                  value={videoForm.title}
+                  onChange={(e) => setVideoForm({ ...videoForm, title: e.target.value })}
+                  placeholder="e.g. Introduction to Equivalent Fractions"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
               </div>
 
+              {/* YouTube URL */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Description</label>
-                <textarea
-                  value={lessonData.description}
-                  onChange={(e) => setLessonData({ ...lessonData, description: e.target.value })}
-                  placeholder="Lesson summary..."
-                  className="w-full p-3 rounded-xl border border-slate-200 text-sm"
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">YouTube URL *</label>
+                <input
+                  type="text"
+                  value={videoForm.youtubeUrl}
+                  onChange={(e) => handleUrlChange(e.target.value)}
+                  placeholder="https://www.youtube.com/watch?v=VIDEO_ID or https://youtu.be/..."
+                  className={`w-full p-2.5 rounded-xl border text-xs font-semibold focus:outline-none focus:ring-2 ${
+                    videoUrlError ? 'border-rose-300 ring-2 ring-rose-200' : 'border-slate-200 focus:ring-blue-500'
+                  }`}
                   required
+                />
+                {videoUrlError && (
+                  <p className="text-[11px] text-rose-600 mt-1 font-semibold flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    {videoUrlError}
+                  </p>
+                )}
+              </div>
+
+              {/* YouTube Video Preview Box (Requirement 9) */}
+              {videoPreviewId && (
+                <div>
+                  <label className="block text-xs font-bold text-emerald-700 uppercase mb-1 flex items-center gap-1">
+                    <CheckCircle className="w-3.5 h-3.5" /> Live YouTube Preview
+                  </label>
+                  <div className="rounded-2xl overflow-hidden aspect-video bg-slate-900 border border-slate-200 relative shadow-xs">
+                    <iframe
+                      src={`https://www.youtube.com/embed/${videoPreviewId}`}
+                      title="YouTube Preview"
+                      className="w-full h-full"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    ></iframe>
+                  </div>
+                </div>
+              )}
+
+              {/* Class & Subject Dropdowns (Assigned only) */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Class *</label>
+                  <select
+                    value={videoForm.className}
+                    onChange={(e) => {
+                      const newCls = e.target.value;
+                      const chapters = curriculum.curriculum?.[newCls]?.[videoForm.subject] || [];
+                      setVideoForm({
+                        ...videoForm,
+                        className: newCls,
+                        chapter: chapters[0]?.chapter || '',
+                        topic: chapters[0]?.topics?.[0] || '',
+                      });
+                    }}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-blue-500"
+                  >
+                    {curriculum.assignedClasses?.map((cls: string) => (
+                      <option key={cls} value={cls}>{cls}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Subject *</label>
+                  <select
+                    value={videoForm.subject}
+                    onChange={(e) => {
+                      const newSubj = e.target.value;
+                      const chapters = curriculum.curriculum?.[videoForm.className]?.[newSubj] || [];
+                      setVideoForm({
+                        ...videoForm,
+                        subject: newSubj,
+                        chapter: chapters[0]?.chapter || '',
+                        topic: chapters[0]?.topics?.[0] || '',
+                      });
+                    }}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-blue-500"
+                  >
+                    {curriculum.assignedSubjects?.map((subj: string) => (
+                      <option key={subj} value={subj}>{subj}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Chapter & Topic Cascades (Requirement 2) */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Chapter *</label>
+                  <select
+                    value={videoForm.chapter}
+                    onChange={(e) => {
+                      const newChap = e.target.value;
+                      const chapters = getChaptersForCurrentSelection();
+                      const chapObj = chapters.find((c: any) => c.chapter === newChap);
+                      setVideoForm({
+                        ...videoForm,
+                        chapter: newChap,
+                        topic: chapObj?.topics?.[0] || '',
+                      });
+                    }}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-blue-500"
+                  >
+                    {getChaptersForCurrentSelection().map((c: any, idx: number) => (
+                      <option key={idx} value={c.chapter}>{c.chapter}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Topic *</label>
+                  <select
+                    value={videoForm.topic}
+                    onChange={(e) => setVideoForm({ ...videoForm, topic: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-blue-500"
+                  >
+                    {getTopicsForCurrentChapter().map((t: string, idx: number) => (
+                      <option key={idx} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Description (Optional)</label>
+                <textarea
+                  value={videoForm.description}
+                  onChange={(e) => setVideoForm({ ...videoForm, description: e.target.value })}
+                  placeholder="Key concepts explained in this video..."
+                  rows={2}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:ring-2 focus:ring-blue-500"
                 ></textarea>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Category</label>
-                  <select
-                    value={lessonData.category}
-                    onChange={(e) => setLessonData({ ...lessonData, category: e.target.value })}
-                    className="w-full p-3 rounded-xl border border-slate-200 text-sm"
-                  >
-                    <option value="daily">Daily Concept</option>
-                    <option value="weekly">Weekly Concept</option>
-                    <option value="notes">Notes</option>
-                    <option value="worksheet">Worksheet</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Content Type</label>
-                  <select
-                    value={lessonData.contentType}
-                    onChange={(e) => setLessonData({ ...lessonData, contentType: e.target.value })}
-                    className="w-full p-3 rounded-xl border border-slate-200 text-sm"
-                  >
-                    <option value="video">YouTube Video</option>
-                    <option value="pdf">PDF File</option>
-                    <option value="image">Image / Diagram</option>
-                    <option value="text">Text Notes</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">YouTube Embed URL</label>
-                <input
-                  type="text"
-                  value={lessonData.youtubeUrl}
-                  onChange={(e) => setLessonData({ ...lessonData, youtubeUrl: e.target.value })}
-                  placeholder="https://www.youtube.com/embed/..."
-                  className="w-full p-3 rounded-xl border border-slate-200 text-sm"
-                />
-              </div>
-
-              <button type="submit" className="w-full py-3.5 bg-purple-600 text-white font-bold rounded-xl text-xs hover:bg-purple-700 shadow-md mt-4">
-                Publish Lesson Now
+              {/* Submit CTA */}
+              <button
+                type="submit"
+                disabled={isSavingVideo || !!videoUrlError}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-md cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2 mt-2"
+              >
+                {isSavingVideo ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Saving Video...</span>
+                  </>
+                ) : (
+                  <span>{isEditingVideo ? 'Save Changes' : 'Add Video'}</span>
+                )}
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* HOMEWORK MODAL */}
-      {showHwModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl relative">
-            <button onClick={() => setShowHwModal(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600">
+      {/* ==========================================
+          DELETE CONFIRMATION MODAL (Requirement 12)
+          ========================================== */}
+      {deletingVideoId && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl text-center">
+            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <h3 className="font-extrabold text-slate-900 text-base mb-1">Are you sure you want to delete this video?</h3>
+            <p className="text-xs text-slate-500 mb-6">
+              This action will remove the video record from both the Teacher and Student dashboards.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setDeletingVideoId(null)}
+                className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer disabled:opacity-60"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          WATCH VIDEO PLAYER MODAL
+          ========================================== */}
+      {watchingVideo && (
+        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-3xl w-full shadow-2xl relative overflow-hidden">
+            <button
+              onClick={() => setWatchingVideo(null)}
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
               <X className="w-5 h-5" />
             </button>
-            <h2 className="text-xl font-extrabold text-slate-900 mb-4">Create Homework Assignment</h2>
+
+            <h3 className="font-extrabold text-slate-900 text-base mb-1">{watchingVideo.title}</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              {watchingVideo.subject} • {watchingVideo.className || watchingVideo.grade} • {watchingVideo.chapter} • {watchingVideo.topic}
+            </p>
+
+            <div className="rounded-2xl overflow-hidden aspect-video bg-black shadow-lg">
+              <iframe
+                src={`https://www.youtube.com/embed/${watchingVideo.youtubeVideoId || extractYouTubeVideoId(watchingVideo.youtubeUrl)}?autoplay=1`}
+                title={watchingVideo.title}
+                className="w-full h-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              ></iframe>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          CREATE HOMEWORK MODAL
+          ========================================== */}
+      {showHwModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl relative">
+            <button
+              onClick={() => setShowHwModal(false)}
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h2 className="text-lg font-black text-slate-900 mb-4">Create Homework Assignment</h2>
             <form onSubmit={handleCreateHomework} className="space-y-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Title</label>
@@ -1377,7 +1438,8 @@ export const TeacherDashboard: React.FC = () => {
                   type="text"
                   value={hwData.title}
                   onChange={(e) => setHwData({ ...hwData, title: e.target.value })}
-                  className="w-full p-3 rounded-xl border border-slate-200 text-sm"
+                  placeholder="e.g. Chapter 1 Practice Questions"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold"
                   required
                 />
               </div>
@@ -1387,7 +1449,9 @@ export const TeacherDashboard: React.FC = () => {
                 <textarea
                   value={hwData.description}
                   onChange={(e) => setHwData({ ...hwData, description: e.target.value })}
-                  className="w-full p-3 rounded-xl border border-slate-200 text-sm"
+                  placeholder="Instructions for students..."
+                  rows={3}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold"
                   required
                 ></textarea>
               </div>
@@ -1399,8 +1463,7 @@ export const TeacherDashboard: React.FC = () => {
                     type="date"
                     value={hwData.dueDate}
                     onChange={(e) => setHwData({ ...hwData, dueDate: e.target.value })}
-                    className="w-full p-3 rounded-xl border border-slate-200 text-sm"
-                    required
+                    className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold"
                   />
                 </div>
                 <div>
@@ -1409,56 +1472,71 @@ export const TeacherDashboard: React.FC = () => {
                     type="number"
                     value={hwData.totalMarks}
                     onChange={(e) => setHwData({ ...hwData, totalMarks: Number(e.target.value) })}
-                    className="w-full p-3 rounded-xl border border-slate-200 text-sm"
-                    required
+                    className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold"
                   />
                 </div>
               </div>
 
-              <button type="submit" className="w-full py-3.5 bg-emerald-600 text-white font-bold rounded-xl text-xs hover:bg-emerald-700 shadow-md mt-4">
-                Assign Homework
+              <button
+                type="submit"
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer mt-3"
+              >
+                Publish Assignment
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* GRADING MODAL */}
+      {/* ==========================================
+          GRADING MODAL
+          ========================================== */}
       {selectedSub && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl relative">
-            <button onClick={() => setSelectedSub(null)} className="absolute right-4 top-4 text-slate-400">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative">
+            <button
+              onClick={() => setSelectedSub(null)}
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
               <X className="w-5 h-5" />
             </button>
-            <h2 className="text-lg font-black text-slate-900 mb-3">Grade {selectedSub.name}'s Work</h2>
+            <h3 className="font-black text-slate-900 text-base mb-1">Grade Student Submission</h3>
+            <p className="text-xs text-slate-500 mb-4">Student: {selectedSub.sub.studentName}</p>
+
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-700 mb-4">
+              <span className="font-bold">Student Response:</span> {selectedSub.sub.content}
+            </div>
+
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Marks Obtained</label>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Marks Obtained (out of 100)</label>
                 <input
                   type="number"
                   value={gradingMarks}
                   onChange={(e) => setGradingMarks(Number(e.target.value))}
-                  className="w-full p-3 rounded-xl border border-slate-200 text-sm"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold"
                 />
               </div>
+
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Teacher Feedback</label>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Feedback</label>
                 <textarea
                   value={gradingFeedback}
                   onChange={(e) => setGradingFeedback(e.target.value)}
-                  className="w-full p-3 rounded-xl border border-slate-200 text-sm"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold"
                 ></textarea>
               </div>
+
               <button
-                onClick={() => handleSaveGrade(selectedSub.hwId, selectedSub.subId)}
-                className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl text-xs shadow-md"
+                onClick={handleGradeSubmit}
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs"
               >
-                Save Grade & Feedback
+                Submit Grade
               </button>
             </div>
           </div>
         </div>
       )}
-    </div>
+    </DashboardLayout>
   );
 };

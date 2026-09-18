@@ -1,6 +1,9 @@
 const mongoose = require('mongoose');
 const dns = require('dns');
 
+// Disable buffering queries when not connected so operations immediately fail-over to memoryStore
+mongoose.set('bufferCommands', false);
+
 // Fix Windows DNS resolution for MongoDB Atlas SRV records
 try {
   dns.setServers(['8.8.8.8', '1.1.1.1']);

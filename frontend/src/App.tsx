@@ -20,33 +20,39 @@ const AppRoutes: React.FC = () => {
       <Route path="/signup" element={<Signup />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
 
-      {/* Protected Dashboard Routes */}
+      {/* Protected Admin Routes & Sub-routes */}
       <Route
-        path="/admin"
+        path="/admin/*"
         element={
           <ProtectedRoute allowedRoles={['admin']}>
             <AdminDashboard />
           </ProtectedRoute>
         }
       />
+
+      {/* Protected Teacher Routes & Sub-routes */}
       <Route
-        path="/teacher"
+        path="/teacher/*"
         element={
           <ProtectedRoute allowedRoles={['teacher']}>
             <TeacherDashboard />
           </ProtectedRoute>
         }
       />
+
+      {/* Protected Student Routes & Sub-routes */}
       <Route
-        path="/student"
+        path="/student/*"
         element={
           <ProtectedRoute allowedRoles={['student']}>
             <StudentDashboard />
           </ProtectedRoute>
         }
       />
+
+      {/* Protected Parent Routes & Sub-routes */}
       <Route
-        path="/parent"
+        path="/parent/*"
         element={
           <ProtectedRoute allowedRoles={['parent']}>
             <ParentDashboard />
@@ -54,7 +60,7 @@ const AppRoutes: React.FC = () => {
         }
       />
 
-      {/* Index Redirect */}
+      {/* Root Index Redirect */}
       <Route
         path="/"
         element={
@@ -67,7 +73,16 @@ const AppRoutes: React.FC = () => {
       />
 
       {/* Fallback Catch-all Route */}
-      <Route path="*" element={<Navigate to="/" replace />} />
+      <Route
+        path="*"
+        element={
+          token && user ? (
+            <Navigate to={getRoleDashboardPath(user.role)} replace />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
     </Routes>
   );
 };

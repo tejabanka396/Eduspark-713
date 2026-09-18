@@ -1,80 +1,143 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { fetchApi } from '../../services/api';
+import { DashboardLayout } from '../../components/DashboardLayout';
+import { extractYouTubeVideoId, getYouTubeEmbedUrl, getYouTubeThumbnailUrl } from '../../utils/youtube';
 import {
   Sparkles,
-  LogOut,
-  Award,
-  Flame,
-  Star,
   BookOpen,
-  Mic,
-  Camera,
-  HelpCircle,
-  Bookmark,
+  FileText,
+  Zap,
+  Play,
   CheckCircle,
   X,
-  FileText,
+  Flame,
+  Star,
+  Camera,
+  Send,
+  Upload,
+  Clock,
+  ChevronRight,
+  Award,
+  RefreshCw,
+  Mic,
   Volume2,
-  Zap,
 } from 'lucide-react';
 
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  data?: {
+    understandTheQuestion?: string;
+    steps?: string[];
+    finalAnswer?: string;
+    quickTip?: string;
+    explanation?: string;
+  };
+}
+
 export const StudentDashboard: React.FC = () => {
-  const { user, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<'home' | 'lessons' | 'homework' | 'ai-helper' | 'voice-tutor' | 'quizzes' | 'achievements'>('home');
+  const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Determine current section from URL: /student/lessons -> 'lessons'
+  const currentSection = location.pathname.replace('/student', '').replace('/', '') || 'home';
 
   // State Data
-  const [profile, setProfile] = useState<any>({ streak: 5, stars: 140, coins: 250, grade: 'Grade 4' });
+  const [profile, setProfile] = useState<any>({ streak: 5, stars: 320, coins: 250, grade: 'Grade 4' });
   const [lessons, setLessons] = useState<any[]>([]);
   const [homeworks, setHomeworks] = useState<any[]>([]);
   const [quizzes, setQuizzes] = useState<any[]>([]);
-  const [achievements, setAchievements] = useState<any[]>([]);
+  const [achievements, setAchievements] = useState<any[]>([
+    { id: 'ach-1', title: '5-Day Streak Master', description: 'Logged in and completed learning 5 days in a row!', icon: '🔥', starsReward: 50, coinsReward: 100, unlocked: true },
+    { id: 'ach-2', title: 'Fraction Explorer', description: 'Scored over 90% on Fractions & Decimals Quiz', icon: '⭐', starsReward: 30, coinsReward: 60, unlocked: true },
+    { id: 'ach-3', title: 'Bookworm Junior', description: 'Bookmarked and completed 5 core subject lessons', icon: '📚', starsReward: 20, coinsReward: 40, unlocked: true },
+    { id: 'ach-4', title: 'AI Curiosity Star', description: 'Asked 3 guided questions to the AI Tutor', icon: '🤖', starsReward: 25, coinsReward: 50, unlocked: false },
+  ]);
   const [bookmarks, setBookmarks] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Notifications & Loading
+  // Toast Notification
   const [notification, setNotification] = useState<string>('');
 
-  // AI Homework Helper State
-  const [aiQuery, setAiQuery] = useState<string>('');
-  const [aiHelperResponse, setAiHelperResponse] = useState<any>(null);
-  const [isAskingAi, setIsAskingAi] = useState<boolean>(false);
+  // Watch Video Modal
+  const [activeVideo, setActiveVideo] = useState<{
+    isOpen: boolean;
+    videoId: string;
+    title: string;
+    subject: string;
+    chapter?: string;
+    topic?: string;
+  } | null>(null);
 
-  // Voice Tutor State
-  const [isListening, setIsListening] = useState<boolean>(false);
-  const [voiceQuery, setVoiceQuery] = useState<string>('');
-  const [voiceResponse, setVoiceResponse] = useState<string>('');
+  // AI Homework Helper Modal & Conversational State
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [aiInput, setAiInput] = useState('');
+  const [isAiThinking, setIsAiThinking] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    {
+      id: 'welcome',
+      role: 'assistant',
+      text: 'Hi there! I am your EduSpark AI Homework Tutor. Ask me any math or science question (like "Find 25% of 80"), or upload a photo of your notebook page!',
+    },
+  ]);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   // OCR Upload State
-  const [isScanningOcr, setIsScanningOcr] = useState<boolean>(false);
-  const [ocrData, setOcrData] = useState<any>(null);
   const [ocrFile, setOcrFile] = useState<File | null>(null);
+  const [ocrPreviewUrl, setOcrPreviewUrl] = useState<string | null>(null);
+  const [isScanningOcr, setIsScanningOcr] = useState(false);
 
-  // Homework Answer Submission State
-  const [selectedHw, setSelectedHw] = useState<any>(null);
-  const [homeworkTextAnswer, setHomeworkTextAnswer] = useState<string>('');
+  // Homework Submission Modal
+  const [selectedHw, setSelectedHw] = useState<any | null>(null);
+  const [homeworkTextAnswer, setHomeworkTextAnswer] = useState('');
+  const [isSubmittingHw, setIsSubmittingHw] = useState(false);
 
-  // Quiz Taking State
+  // Quiz Taking Modal
+  const [activeQuiz, setActiveQuiz] = useState<any | null>(null);
   const [userQuizAnswers, setUserQuizAnswers] = useState<Record<number, string>>({});
-  const [quizResult, setQuizResult] = useState<any>(null);
+  const [quizResult, setQuizResult] = useState<any | null>(null);
+  const [isSubmittingQuiz, setIsSubmittingQuiz] = useState(false);
 
-  // Load Data on Mount
+  // Voice Tutor State
+  const [isListeningVoice, setIsListeningVoice] = useState(false);
+  const [voiceQuery, setVoiceQuery] = useState('');
+  const [voiceResponse, setVoiceResponse] = useState('');
+
+  // Auto-scroll chat to bottom
   useEffect(() => {
-    loadStudentDashboardData();
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, isAiThinking]);
+
+  // Load Dashboard Data
+  useEffect(() => {
+    loadDashboardData();
   }, []);
 
-  const loadStudentDashboardData = async () => {
+  const loadDashboardData = async () => {
+    setIsLoading(true);
     try {
       const res = await fetchApi<any>('/student/dashboard');
       if (res.success) {
-        setProfile(res.profile);
+        setProfile(res.profile || { streak: 5, stars: 320, coins: 250, grade: 'Grade 4' });
         setLessons(res.lessons || []);
         setHomeworks(res.homeworks || []);
         setQuizzes(res.quizzes || []);
-        setAchievements(res.achievements || []);
+        if (res.achievements && res.achievements.length) {
+          setAchievements(res.achievements);
+        }
         setBookmarks(res.bookmarks || []);
       }
     } catch (err) {
       console.error('Error loading student dashboard data:', err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -83,52 +146,220 @@ export const StudentDashboard: React.FC = () => {
     setTimeout(() => setNotification(''), 4000);
   };
 
-  // Toggle Bookmark
-  const handleToggleBookmark = async (lessonId: string) => {
-    try {
-      const res = await fetchApi<any>(`/student/bookmark/${lessonId}`, { method: 'POST' });
-      if (res.success) {
-        showToast(res.message);
-        setBookmarks((prev) =>
-          res.isBookmarked ? [...prev, lessonId] : prev.filter((id) => id !== lessonId)
-        );
-      }
-    } catch (err: any) {
-      showToast('Error updating bookmark.');
+  // Filter lessons
+  const filteredLessons = lessons.filter((l) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (l.title || '').toLowerCase().includes(q) ||
+      (l.subject || l.category || '').toLowerCase().includes(q) ||
+      (l.chapter || '').toLowerCase().includes(q) ||
+      (l.topic || '').toLowerCase().includes(q)
+    );
+  });
+
+  // Watch Video Click
+  const handleWatchVideo = (lesson: any) => {
+    const videoId = lesson.youtubeVideoId || extractYouTubeVideoId(lesson.youtubeUrl);
+    if (!videoId) {
+      showToast('This lesson does not have a valid video link.');
+      return;
     }
+    setActiveVideo({
+      isOpen: true,
+      videoId,
+      title: lesson.title,
+      subject: lesson.subject || lesson.category || 'Lesson',
+      chapter: lesson.chapter,
+      topic: lesson.topic,
+    });
   };
 
-  // AI Homework Helper Submit (Never gives direct answers!)
-  const handleAskAiHelper = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!aiQuery.trim()) return;
-    setIsAskingAi(true);
-    setAiHelperResponse(null); // Clear previous response
+  // Ask AI Homework Helper with Context
+  const handleSendAiMessage = async (customPrompt?: string) => {
+    const promptToSend = (customPrompt || aiInput).trim();
+    if (!promptToSend || isAiThinking) return;
+
+    const userMsgId = Date.now().toString();
+    const newMessages: ChatMessage[] = [
+      ...chatMessages,
+      { id: userMsgId, role: 'user', text: promptToSend },
+    ];
+    setChatMessages(newMessages);
+    if (!customPrompt) setAiInput('');
+    setIsAiThinking(true);
+
     try {
-      const res = await fetchApi<any>('/ai/tutor', {
+      const historyPayload = newMessages
+        .filter((m) => m.id !== 'welcome')
+        .map((m) => ({
+          role: m.role === 'user' ? 'user' : 'assistant',
+          text: m.text,
+        }));
+
+      const res = await fetchApi<any>('/ai/homework', {
         method: 'POST',
-        body: JSON.stringify({ question: aiQuery, class: profile.grade }),
+        body: JSON.stringify({
+          question: promptToSend,
+          class: profile.grade || user?.grade || 'Grade 4',
+          subject: 'Mathematics',
+          history: historyPayload,
+        }),
       });
-      if (res.success) {
-        setAiHelperResponse(res.data);
+
+      if (res.success && res.data) {
+        const responseData = res.data;
+        const aiMsg: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          text: responseData.finalAnswer || responseData.explanation || 'Here is the step-by-step solution:',
+          data: {
+            understandTheQuestion: responseData.understandTheQuestion,
+            steps: responseData.steps || responseData.stepByStepSolution,
+            finalAnswer: responseData.finalAnswer,
+            quickTip: responseData.quickTip,
+            explanation: responseData.explanation,
+          },
+        };
+        setChatMessages((prev) => [...prev, aiMsg]);
+      } else {
+        throw new Error(res.message || 'Failed to get answer');
       }
     } catch (err: any) {
-      showToast(err.message || 'Error asking AI Helper.');
-      setAiHelperResponse({
-        answer: err.message || 'The AI service is temporarily unavailable. Please try again in a moment.',
-        provider: 'System Error'
-      });
+      console.error('AI Helper Error:', err);
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          text: err.message || 'Sorry, I ran into an issue solving this question. Please try again.',
+        },
+      ]);
     } finally {
-      setIsAskingAi(false);
+      setIsAiThinking(false);
     }
   };
 
-  // Web Speech API Voice Tutor
+  // OCR File Pick
+  const handleOcrFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setOcrFile(file);
+      setOcrPreviewUrl(URL.createObjectURL(file));
+    }
+  };
+
+  // OCR Upload & Process
+  const handleProcessOcr = async () => {
+    if (!ocrFile) {
+      showToast('Please select an image of your homework first.');
+      return;
+    }
+
+    setIsScanningOcr(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', ocrFile);
+      formData.append('class', profile.grade || 'Grade 4');
+      formData.append('subject', 'Mathematics');
+
+      const res = await fetchApi<any>('/ai/ocr-scan', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (res.success && res.data) {
+        const solution = res.data;
+        const extractedQuestion = res.extractedText || solution.question || 'Uploaded Homework Problem';
+
+        const userMsg: ChatMessage = {
+          id: Date.now().toString(),
+          role: 'user',
+          text: `[Scanned Notebook]: ${extractedQuestion}`,
+        };
+        const aiMsg: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          text: solution.finalAnswer || 'Here is the step-by-step solution for your notebook problem:',
+          data: {
+            understandTheQuestion: solution.understandTheQuestion,
+            steps: solution.steps || solution.stepByStepSolution,
+            finalAnswer: solution.finalAnswer,
+            quickTip: solution.quickTip,
+            explanation: solution.explanation,
+          },
+        };
+
+        setChatMessages((prev) => [...prev, userMsg, aiMsg]);
+        setOcrFile(null);
+        setOcrPreviewUrl(null);
+        showToast('Notebook scanned successfully! Solution generated below.');
+      } else {
+        throw new Error(res.message || 'OCR processing failed.');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Error processing homework image.');
+    } finally {
+      setIsScanningOcr(false);
+    }
+  };
+
+  // Submit Homework Answer
+  const handleSubmitHomework = async (hwId: string) => {
+    if (!homeworkTextAnswer.trim()) {
+      showToast('Please write your answer before submitting.');
+      return;
+    }
+
+    setIsSubmittingHw(true);
+    try {
+      const res = await fetchApi<any>(`/student/homework/${hwId}/submit`, {
+        method: 'POST',
+        body: JSON.stringify({ content: homeworkTextAnswer }),
+      });
+
+      if (res.success) {
+        showToast('Homework submitted successfully! Great work! 🎉');
+        setSelectedHw(null);
+        setHomeworkTextAnswer('');
+        loadDashboardData();
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Error submitting homework.');
+    } finally {
+      setIsSubmittingHw(false);
+    }
+  };
+
+  // Submit Quiz Answers
+  const handleSubmitQuiz = async (quizId: string) => {
+    setIsSubmittingQuiz(true);
+    try {
+      const res = await fetchApi<any>(`/student/quiz/${quizId}/submit`, {
+        method: 'POST',
+        body: JSON.stringify({ answers: userQuizAnswers }),
+      });
+
+      if (res.success) {
+        setQuizResult(res);
+        setProfile((prev: any) => ({
+          ...prev,
+          stars: (prev.stars || 0) + (res.starsEarned || 20),
+          coins: (prev.coins || 0) + (res.coinsEarned || 50),
+        }));
+        showToast('Quiz submitted! Check your score! 🌟');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Error submitting quiz.');
+    } finally {
+      setIsSubmittingQuiz(false);
+    }
+  };
+
+  // Voice Tutor Trigger
   const handleStartVoiceTutor = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
     if (!SpeechRecognition) {
-      // Fallback simulation if browser SpeechRecognition is disabled
       setVoiceQuery('How do green plants turn sunlight into food?');
       triggerVoiceResponse('How do green plants turn sunlight into food?');
       return;
@@ -138,8 +369,8 @@ export const StudentDashboard: React.FC = () => {
     recognition.lang = 'en-US';
     recognition.interimResults = false;
 
-    recognition.onstart = () => setIsListening(true);
-    recognition.onend = () => setIsListening(false);
+    recognition.onstart = () => setIsListeningVoice(true);
+    recognition.onend = () => setIsListeningVoice(false);
 
     recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript;
@@ -152,331 +383,324 @@ export const StudentDashboard: React.FC = () => {
 
   const triggerVoiceResponse = async (q: string) => {
     try {
-      const res = await fetchApi<any>('/student/voice-tutor', {
+      const res = await fetchApi<any>('/ai/homework', {
         method: 'POST',
-        body: JSON.stringify({ voiceQuestion: q }),
+        body: JSON.stringify({ question: q, class: 'Grade 4' }),
       });
-
-      if (res.success) {
-        setVoiceResponse(res.spokenResponse);
-        // Text to Speech
+      if (res.success && res.data) {
+        const spoken = res.data.finalAnswer || res.data.explanation || 'Great question!';
+        setVoiceResponse(spoken);
         if ('speechSynthesis' in window) {
-          const utterance = new SpeechSynthesisUtterance(res.spokenResponse);
-          utterance.pitch = 1.2; // Friendly child tutor voice
+          const utterance = new SpeechSynthesisUtterance(spoken);
+          utterance.pitch = 1.2;
           utterance.rate = 0.95;
           window.speechSynthesis.speak(utterance);
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast('Voice tutor error.');
     }
   };
 
-  // OCR Homework Scanner
-  const handleOcrScan = async () => {
-    if (!ocrFile) {
-      showToast('Please select an image file first.');
-      return;
-    }
-    setIsScanningOcr(true);
-    try {
-      const formData = new FormData();
-      formData.append('image', ocrFile);
-      formData.append('class', profile.grade);
-
-      const res = await fetchApi<any>('/ai/ocr-scan', {
-        method: 'POST',
-        body: formData,
-      });
-      if (res.success) {
-        setOcrData({ extractedText: res.extractedText, aiSuggestions: res.data.explanation || 'No suggestions.', missingQuestions: [] });
-        showToast('OCR scan completed! AI detected handwriting.');
-      }
-    } catch (err: any) {
-      showToast('OCR scan error.');
-    } finally {
-      setIsScanningOcr(false);
-    }
-  };
-
-  // Submit Homework Answer
-  const handleSubmitHomeworkAnswer = async (hwId: string) => {
-    try {
-      const res = await fetchApi<any>(`/student/homework/${hwId}/submit`, {
-        method: 'POST',
-        body: JSON.stringify({ content: homeworkTextAnswer }),
-      });
-
-      if (res.success) {
-        showToast(res.message);
-        setSelectedHw(null);
-        setHomeworkTextAnswer('');
-        loadStudentDashboardData();
-      }
-    } catch (err: any) {
-      showToast('Error submitting homework.');
-    }
-  };
-
-  // Submit Quiz Answers & Get Results
-  const handleSubmitQuiz = async (quizId: string) => {
-    try {
-      const res = await fetchApi<any>(`/student/quiz/${quizId}/submit`, {
-        method: 'POST',
-        body: JSON.stringify({ answers: userQuizAnswers }),
-      });
-
-      if (res.success) {
-        setQuizResult(res);
-        setProfile((prev: any) => ({
-          ...prev,
-          stars: prev.stars + (res.starsEarned || 20),
-          coins: prev.coins + (res.coinsEarned || 50),
-        }));
-      }
-    } catch (err: any) {
-      showToast('Error submitting quiz.');
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-purple-50 to-pink-50 text-slate-800 flex flex-col">
-      {/* Top Navbar */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-amber-200 px-6 py-4 flex flex-wrap items-center justify-between shadow-sm sticky top-0 z-30">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-amber-400 text-amber-900 flex items-center justify-center font-black shadow-md text-xl">
-            🎒
-          </div>
-          <div>
-            <h1 className="font-black text-lg text-slate-900 flex items-center gap-1.5">
-              EduSpark AI <Sparkles className="w-4 h-4 text-amber-500 fill-amber-400" />
-            </h1>
-            <p className="text-xs text-amber-700 font-bold">{profile.grade} Learning Explorer</p>
-          </div>
+    <DashboardLayout
+      role="student"
+      pageTitle="Student Learning Explorer"
+      searchTerm={searchQuery}
+      onSearchChange={setSearchQuery}
+      headerAction={
+        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full text-xs font-bold text-amber-900">
+          <Flame className="w-3.5 h-3.5 text-orange-500 fill-orange-500" />
+          <span>{profile.streak || 5} Days</span>
+          <span className="text-amber-300">|</span>
+          <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
+          <span>{profile.stars || 320} Pts</span>
         </div>
-
-        {/* Gamification Stats Header */}
-        <div className="flex items-center gap-4 mt-2 sm:mt-0">
-          <div className="flex items-center gap-3 bg-amber-100/70 border border-amber-200 px-4 py-1.5 rounded-2xl">
-            <div className="flex items-center gap-1 text-xs font-black text-amber-900">
-              <Flame className="w-4 h-4 text-orange-500 fill-orange-500" /> {profile.streak} Days
-            </div>
-            <div className="w-px h-4 bg-amber-300"></div>
-            <div className="flex items-center gap-1 text-xs font-black text-amber-900">
-              <Star className="w-4 h-4 text-amber-500 fill-amber-400" /> {profile.stars} Stars
-            </div>
-            <div className="w-px h-4 bg-amber-300"></div>
-            <div className="flex items-center gap-1 text-xs font-black text-amber-900">
-              🪙 {profile.coins} Coins
-            </div>
-          </div>
-
-          <div className="text-right hidden sm:block">
-            <p className="text-sm font-black text-slate-800">{user?.name || profile.name}</p>
-            <p className="text-xs text-amber-600 font-bold">Student</p>
-          </div>
-          <button
-            onClick={logout}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-rose-50 border border-slate-200 text-slate-700 hover:text-rose-600 font-bold text-xs transition-colors cursor-pointer"
-          >
-            <LogOut className="w-4 h-4" />
-            <span>Sign Out</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Main Container */}
-      <main className="max-w-7xl w-full mx-auto p-4 sm:p-8 flex-1">
-        {/* Toast Alert */}
+      }
+    >
+      <div className="space-y-6">
+        {/* Toast Notification */}
         {notification && (
-          <div className="mb-6 p-4 rounded-2xl bg-amber-500 text-white font-bold text-sm flex items-center justify-between shadow-lg animate-fade-in">
+          <div className="p-3.5 rounded-xl bg-blue-600 text-white font-medium text-xs flex items-center justify-between shadow-lg animate-in fade-in slide-in-from-top-2 duration-200">
             <div className="flex items-center gap-2">
-              <CheckCircle className="w-5 h-5" />
+              <CheckCircle className="w-4 h-4 text-blue-200" />
               <span>{notification}</span>
             </div>
             <button onClick={() => setNotification('')}>
-              <X className="w-5 h-5 text-white/80 hover:text-white" />
+              <X className="w-4 h-4 text-white/80 hover:text-white" />
             </button>
           </div>
         )}
 
-        {/* Dashboard Navigation Tabs */}
-        <div className="flex flex-wrap gap-2 border-b border-amber-200 pb-3 mb-6">
-          <button
-            onClick={() => setActiveTab('home')}
-            className={`px-4 py-2 rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'home' ? 'bg-amber-500 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Sparkles className="w-4 h-4" /> Home & Learning
-          </button>
-          <button
-            onClick={() => setActiveTab('lessons')}
-            className={`px-4 py-2 rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'lessons' ? 'bg-purple-600 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <BookOpen className="w-4 h-4" /> Today's Lessons ({lessons.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('homework')}
-            className={`px-4 py-2 rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'homework' ? 'bg-emerald-600 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <FileText className="w-4 h-4" /> Homework & OCR Upload
-          </button>
-          <button
-            onClick={() => setActiveTab('ai-helper')}
-            className={`px-4 py-2 rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'ai-helper' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <HelpCircle className="w-4 h-4" /> AI Homework Helper 💡
-          </button>
-          <button
-            onClick={() => setActiveTab('voice-tutor')}
-            className={`px-4 py-2 rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'voice-tutor' ? 'bg-pink-600 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Mic className="w-4 h-4" /> AI Voice Tutor 🎙️
-          </button>
-          <button
-            onClick={() => setActiveTab('quizzes')}
-            className={`px-4 py-2 rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'quizzes' ? 'bg-orange-500 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Zap className="w-4 h-4" /> Quizzes ({quizzes.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('achievements')}
-            className={`px-4 py-2 rounded-2xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'achievements' ? 'bg-teal-600 text-white shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-            }`}
-          >
-            <Award className="w-4 h-4" /> Achievements & Badges
-          </button>
-        </div>
+        {/* ================= SECTION 1: HOME OVERVIEW ================= */}
+        {(currentSection === 'home' || currentSection === '') && (
+          <div className="space-y-6">
+            {/* Greeting Hero Card */}
+            <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-amber-100 flex items-center justify-center text-3xl shadow-xs border border-amber-200">
+                  🚀
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-slate-900">
+                    Good morning, {user?.name || 'Leo'}!
+                  </h1>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Keep learning, you're doing great! You have {lessons.length} video lessons and {quizzes.length} quizzes ready.
+                  </p>
+                </div>
+              </div>
 
-        {/* TAB 1: HOME */}
-        {activeTab === 'home' && (
-          <div className="space-y-8">
-            <div className="bg-gradient-to-r from-amber-400 via-orange-400 to-pink-500 text-slate-900 p-6 sm:p-8 rounded-3xl shadow-lg relative">
-              <span className="bg-white/40 px-3 py-1 rounded-full text-xs font-black text-slate-900 inline-block mb-2">
-                Daily Motivation 🌟
-              </span>
-              <h2 className="text-3xl font-black mb-2">Welcome Back, {user?.name || profile.name}! 🚀</h2>
-              <p className="text-slate-800 font-semibold text-sm max-w-xl">
-                {profile.dailyMotivation}
-              </p>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-orange-50 border border-orange-200/80 text-orange-900 text-xs font-bold">
+                  <Flame className="w-4 h-4 text-orange-500 fill-orange-500" />
+                  <span>Learning Streak: {profile.streak || 5} Days</span>
+                </div>
+                <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-blue-50 border border-blue-200/80 text-blue-900 text-xs font-bold">
+                  <Star className="w-4 h-4 text-blue-600 fill-blue-500" />
+                  <span>Points: {profile.stars || 320}</span>
+                </div>
+              </div>
             </div>
 
-            {/* Quick Action Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              <div
-                onClick={() => setActiveTab('lessons')}
-                className="bg-white p-5 rounded-3xl border-2 border-purple-200 shadow-sm flex items-center gap-4 hover:scale-[1.02] transition-transform cursor-pointer"
+            {/* 4 Action Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <button
+                onClick={() => navigate('/student/lessons')}
+                className="bg-white p-4 rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-xs transition-all group flex flex-col justify-between text-left cursor-pointer"
               >
-                <div className="p-3 bg-purple-100 text-purple-600 rounded-2xl">
-                  <BookOpen className="w-7 h-7" />
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
+                  <BookOpen className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase">Today's Lessons</p>
-                  <p className="text-lg font-black text-slate-900">{lessons.length} Ready</p>
+                  <p className="text-xs font-semibold text-slate-900">Continue Learning</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">{lessons.length} Lessons Available</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setIsAiModalOpen(true)}
+                className="bg-white p-4 rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-xs transition-all group flex flex-col justify-between text-left cursor-pointer"
+              >
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-900">AI Homework Helper</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Step-by-step tutoring</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => navigate('/student/homework')}
+                className="bg-white p-4 rounded-xl border border-slate-200 hover:border-emerald-300 hover:shadow-xs transition-all group flex flex-col justify-between text-left cursor-pointer"
+              >
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-900">Assigned Homework</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">{homeworks.length} Due Soon</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => navigate('/student/quizzes')}
+                className="bg-white p-4 rounded-xl border border-slate-200 hover:border-amber-300 hover:shadow-xs transition-all group flex flex-col justify-between text-left cursor-pointer"
+              >
+                <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
+                  <Zap className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-900">Practice Quizzes</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">{quizzes.length} Quizzes Ready</p>
+                </div>
+              </button>
+            </div>
+
+            {/* Two Column Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Left 2 Columns: Today's Lessons Feed */}
+              <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900">Today's Assigned Lessons</h2>
+                    <p className="text-xs text-slate-500">Curated educational videos for {profile.grade || 'Grade 4'}</p>
+                  </div>
+                  <button
+                    onClick={() => navigate('/student/lessons')}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>View All</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {filteredLessons.slice(0, 4).map((lesson) => {
+                    const videoId = lesson.youtubeVideoId || extractYouTubeVideoId(lesson.youtubeUrl);
+                    const thumb = lesson.thumbnail || (videoId ? getYouTubeThumbnailUrl(videoId) : null);
+
+                    return (
+                      <div
+                        key={lesson._id || lesson.id}
+                        className="border border-slate-200 rounded-xl overflow-hidden hover:border-blue-300 hover:shadow-xs transition-all flex flex-col justify-between group bg-white"
+                      >
+                        <div className="relative aspect-video bg-slate-900 overflow-hidden cursor-pointer" onClick={() => handleWatchVideo(lesson)}>
+                          {thumb ? (
+                            <img src={thumb} alt={lesson.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-slate-800 text-slate-400">
+                              <Play className="w-8 h-8 opacity-50" />
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                            <div className="w-10 h-10 rounded-full bg-blue-600/90 group-hover:bg-blue-600 text-white flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-all">
+                              <Play className="w-5 h-5 fill-white ml-0.5" />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="p-3.5 flex-1 flex flex-col justify-between">
+                          <div>
+                            <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded-md mb-1.5 inline-block">
+                              {lesson.subject || 'Mathematics'}
+                            </span>
+                            <h3 className="text-xs font-bold text-slate-900 line-clamp-1 group-hover:text-blue-600 transition-colors">
+                              {lesson.title}
+                            </h3>
+                            {lesson.topic && <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">Topic: {lesson.topic}</p>}
+                          </div>
+
+                          <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between">
+                            <span className="text-[11px] text-slate-400 font-medium">{lesson.className || 'Grade 4 - Alpha'}</span>
+                            <button
+                              onClick={() => handleWatchVideo(lesson)}
+                              className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer"
+                            >
+                              <span>Watch Video</span>
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div
-                onClick={() => setActiveTab('ai-helper')}
-                className="bg-white p-5 rounded-3xl border-2 border-indigo-200 shadow-sm flex items-center gap-4 hover:scale-[1.02] transition-transform cursor-pointer"
-              >
-                <div className="p-3 bg-indigo-100 text-indigo-600 rounded-2xl">
-                  <HelpCircle className="w-7 h-7" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase">AI Homework Helper</p>
-                  <p className="text-lg font-black text-indigo-700">Get Hints & Steps</p>
-                </div>
-              </div>
+              {/* Right Column: Performance & Fast AI Query */}
+              <div className="space-y-6">
+                <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs">
+                  <h2 className="text-sm font-bold text-slate-900 mb-1">Subject Performance</h2>
+                  <p className="text-xs text-slate-500 mb-4">Academic progress across enrolled subjects</p>
 
-              <div
-                onClick={() => setActiveTab('voice-tutor')}
-                className="bg-white p-5 rounded-3xl border-2 border-pink-200 shadow-sm flex items-center gap-4 hover:scale-[1.02] transition-transform cursor-pointer"
-              >
-                <div className="p-3 bg-pink-100 text-pink-600 rounded-2xl">
-                  <Mic className="w-7 h-7" />
+                  <div className="space-y-3.5">
+                    <div>
+                      <div className="flex justify-between text-xs font-semibold mb-1">
+                        <span className="text-slate-700">Mathematics</span>
+                        <span className="text-blue-600">88%</span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-blue-600 rounded-full" style={{ width: '88%' }}></div>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-xs font-semibold mb-1">
+                        <span className="text-slate-700">Science</span>
+                        <span className="text-emerald-600">92%</span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-emerald-500 rounded-full" style={{ width: '92%' }}></div>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-xs font-semibold mb-1">
+                        <span className="text-slate-700">English Language Arts</span>
+                        <span className="text-amber-600">78%</span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-amber-500 rounded-full" style={{ width: '78%' }}></div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase">AI Voice Tutor</p>
-                  <p className="text-lg font-black text-pink-700">Speak & Listen</p>
-                </div>
-              </div>
 
-              <div
-                onClick={() => setActiveTab('quizzes')}
-                className="bg-white p-5 rounded-3xl border-2 border-amber-200 shadow-sm flex items-center gap-4 hover:scale-[1.02] transition-transform cursor-pointer"
-              >
-                <div className="p-3 bg-amber-100 text-amber-600 rounded-2xl">
-                  <Zap className="w-7 h-7" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase">Adaptive Quizzes</p>
-                  <p className="text-lg font-black text-slate-900">{quizzes.length} Quizzes</p>
+                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl border border-blue-200/70 p-5 shadow-xs">
+                  <div className="flex items-center gap-2 mb-2 text-blue-900 font-bold text-xs">
+                    <Sparkles className="w-4 h-4 text-blue-600" />
+                    <span>Quick Homework Question</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 mb-3">
+                    Need help with fractions or equations? Ask your AI tutor:
+                  </p>
+                  <button
+                    onClick={() => {
+                      setIsAiModalOpen(true);
+                      handleSendAiMessage('Find 25% of 80.');
+                    }}
+                    className="w-full text-left p-2.5 rounded-xl bg-white border border-blue-100 hover:border-blue-300 text-xs text-slate-700 font-medium transition-colors cursor-pointer shadow-2xs"
+                  >
+                    💡 "Find 25% of 80."
+                  </button>
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* TAB 2: LESSONS & BOOKMARKS */}
-        {activeTab === 'lessons' && (
-          <div className="space-y-6">
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-              <h2 className="font-black text-slate-900 text-lg">Today's Interactive Lessons</h2>
-              <p className="text-xs text-slate-500">Watch videos, view notes, read PDFs, and bookmark your favorite topics</p>
+        {/* ================= SECTION 2: LESSONS ================= */}
+        {currentSection === 'lessons' && (
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4">
+            <div className="border-b border-slate-100 pb-4">
+              <h2 className="text-base font-bold text-slate-900">Assigned Video Lessons & Study Material</h2>
+              <p className="text-xs text-slate-500">Watch lessons curated by your teachers for {profile.grade || 'Grade 4'}</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {lessons.map((lesson) => {
-                const isBookmarked = bookmarks.includes(lesson._id || lesson.id);
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredLessons.map((lesson) => {
+                const videoId = lesson.youtubeVideoId || extractYouTubeVideoId(lesson.youtubeUrl);
+                const thumb = lesson.thumbnail || (videoId ? getYouTubeThumbnailUrl(videoId) : null);
+
                 return (
-                  <div key={lesson._id || lesson.id} className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col justify-between p-6">
-                    <div>
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-black uppercase">
-                          {lesson.category}
-                        </span>
-                        <button
-                          onClick={() => handleToggleBookmark(lesson._id || lesson.id)}
-                          className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
-                            isBookmarked ? 'bg-amber-100 text-amber-600 border-amber-300' : 'bg-slate-50 text-slate-400 border-slate-200'
-                          }`}
-                        >
-                          <Bookmark className="w-4 h-4 fill-current" />
-                        </button>
-                      </div>
-
-                      <h3 className="font-black text-slate-900 text-lg mb-1">{lesson.title}</h3>
-                      <p className="text-xs text-slate-600 mb-4">{lesson.description}</p>
-
-                      {/* YouTube Video Player Embed */}
-                      {lesson.youtubeUrl && (
-                        <div className="rounded-2xl overflow-hidden mb-4 border border-slate-200 bg-slate-900 aspect-video relative">
-                          <iframe
-                            src={lesson.youtubeUrl}
-                            title={lesson.title}
-                            className="w-full h-full"
-                            allowFullScreen
-                          ></iframe>
+                  <div
+                    key={lesson._id || lesson.id}
+                    className="border border-slate-200 rounded-xl overflow-hidden hover:border-blue-300 hover:shadow-xs transition-all flex flex-col justify-between group bg-white"
+                  >
+                    <div className="relative aspect-video bg-slate-900 overflow-hidden cursor-pointer" onClick={() => handleWatchVideo(lesson)}>
+                      {thumb ? (
+                        <img src={thumb} alt={lesson.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-slate-800 text-slate-400">
+                          <Play className="w-8 h-8 opacity-50" />
                         </div>
                       )}
+                      <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                        <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg">
+                          <Play className="w-5 h-5 fill-white ml-0.5" />
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="pt-3 border-t border-slate-100 text-xs text-slate-500 flex items-center justify-between">
-                      <span>{lesson.grade} • {lesson.subject}</span>
-                      <span className="font-bold text-purple-600">{lesson.teacherName}</span>
+                    <div className="p-3.5 flex-1 flex flex-col justify-between">
+                      <div>
+                        <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded-md mb-1 inline-block">
+                          {lesson.subject || 'Mathematics'}
+                        </span>
+                        <h3 className="text-xs font-bold text-slate-900 line-clamp-1">{lesson.title}</h3>
+                        {lesson.chapter && <p className="text-[11px] text-slate-500 mt-0.5">{lesson.chapter}</p>}
+                      </div>
+
+                      <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between">
+                        <span className="text-[11px] text-slate-400 font-medium">{lesson.className || 'Grade 4'}</span>
+                        <button
+                          onClick={() => handleWatchVideo(lesson)}
+                          className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer"
+                        >
+                          <span>Watch Video</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -485,100 +709,45 @@ export const StudentDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 3: HOMEWORK & OCR UPLOAD */}
-        {activeTab === 'homework' && (
-          <div className="space-y-6">
-            {/* OCR Notebook Scanner */}
-            <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 text-white p-6 sm:p-8 rounded-3xl shadow-lg">
-              <div className="flex items-center gap-2 text-emerald-200 text-xs font-bold uppercase tracking-wider mb-2">
-                <Camera className="w-4 h-4" /> AI OCR Notebook Reader
+        {/* ================= SECTION 3: HOMEWORK ================= */}
+        {currentSection === 'homework' && (
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Homework & Submissions</h2>
+                <p className="text-xs text-slate-500">Submit homework answers or scan your notebook</p>
               </div>
-              <h2 className="text-2xl font-black mb-2">OCR Notebook Scanner 📸</h2>
-              <p className="text-emerald-100 text-sm max-w-xl mb-4">
-                Upload a photo of your handwritten notebook. AI reads your handwriting, checks for missing questions, and provides feedback!
-              </p>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setOcrFile(e.target.files ? e.target.files[0] : null)}
-                  className="text-sm bg-white/20 p-2 rounded-xl border border-emerald-300 text-white file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-white file:text-emerald-800 cursor-pointer"
-                />
-                <button
-                  onClick={handleOcrScan}
-                  disabled={isScanningOcr || !ocrFile}
-                  className={`px-6 py-3 font-black rounded-2xl shadow-md transition-all flex items-center gap-2 cursor-pointer text-xs ${
-                    isScanningOcr || !ocrFile ? 'bg-emerald-200 text-emerald-600 opacity-70' : 'bg-white text-emerald-900 hover:bg-emerald-50'
-                  }`}
-                >
-                  {isScanningOcr ? (
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 border-2 border-emerald-900 border-t-transparent rounded-full animate-spin"></div>
-                      <span>Reading your question...</span>
-                    </div>
-                  ) : (
-                    <>
-                      <Camera className="w-4 h-4 text-emerald-700" /> Scan Notebook Image Now
-                    </>
-                  )}
-                </button>
-              </div>
+              <button
+                onClick={() => setIsAiModalOpen(true)}
+                className="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>Scan Notebook (OCR)</span>
+              </button>
             </div>
 
-            {/* OCR Scanner Results Display */}
-            {ocrData && (
-              <div className="bg-white p-6 rounded-3xl border border-emerald-200 shadow-sm animate-fade-in space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-extrabold text-slate-900 text-base flex items-center gap-2">
-                    <CheckCircle className="w-5 h-5 text-emerald-600" /> OCR Reading Results (Google Vision API)
-                  </h3>
-                  {homeworks.length > 0 && (
-                    <button
-                      onClick={() => {
-                        setSelectedHw(homeworks[0]);
-                        setHomeworkTextAnswer(`[OCR Scanned Notebook Handwriting]:\n${ocrData.extractedText}`);
-                        showToast('Attached OCR extracted handwriting to homework submission!');
-                      }}
-                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-sm cursor-pointer"
-                    >
-                      Attach OCR Text to Homework
-                    </button>
-                  )}
-                </div>
-                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 font-mono text-xs text-slate-800 whitespace-pre-line">
-                  {ocrData.extractedText}
-                </div>
-                <div className="p-3 bg-emerald-50 text-emerald-900 rounded-2xl border border-emerald-200 text-xs flex items-start justify-between gap-2">
-                  <div>
-                    <strong>AI Suggestion:</strong> {ocrData.aiSuggestions}
-                  </div>
-                  {ocrData.missingQuestions?.length > 0 && (
-                    <span className="px-2 py-0.5 bg-rose-100 text-rose-800 rounded-full font-bold text-[10px] flex-shrink-0">
-                      ⚠️ Missing Question Detected
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Active Homework Assignments */}
-            <div className="space-y-4">
-              <h3 className="text-xl font-black text-slate-900">Your Homework Assignments</h3>
+            <div className="space-y-3">
               {homeworks.map((hw) => (
-                <div key={hw._id || hw.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div key={hw._id || hw.id} className="p-4 rounded-xl border border-slate-200 hover:border-slate-300 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white">
                   <div>
-                    <span className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-xs font-black">
-                      Due: {hw.dueDate}
-                    </span>
-                    <h4 className="font-black text-slate-900 text-lg mt-2">{hw.title}</h4>
-                    <p className="text-xs text-slate-600 max-w-xl">{hw.description}</p>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded-md">{hw.subject || 'General'}</span>
+                      <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> Due: {hw.dueDate ? new Date(hw.dueDate).toLocaleDateString() : 'Upcoming'}
+                      </span>
+                    </div>
+                    <h3 className="text-xs font-bold text-slate-900">{hw.title}</h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">{hw.instructions || hw.description}</p>
                   </div>
 
                   <button
-                    onClick={() => setSelectedHw(hw)}
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-md cursor-pointer flex-shrink-0"
+                    onClick={() => {
+                      setSelectedHw(hw);
+                      setHomeworkTextAnswer('');
+                    }}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer shadow-xs shrink-0"
                   >
-                    Submit Answer Online
+                    Submit Answer
                   </button>
                 </div>
               ))}
@@ -586,279 +755,476 @@ export const StudentDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 4: AI HOMEWORK HELPER (CRITICAL RULE: NO DIRECT ANSWERS) */}
-        {activeTab === 'ai-helper' && (
-          <div className="space-y-6">
-            <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 text-white p-6 sm:p-8 rounded-3xl shadow-lg">
-              <div className="flex items-center gap-2 text-indigo-200 text-xs font-bold uppercase tracking-wider mb-2">
-                <HelpCircle className="w-4 h-4" /> AI Guided Learning Mascot
-              </div>
-              <h2 className="text-2xl sm:text-3xl font-black mb-2">AI Homework Helper 🤖💡</h2>
-              <p className="text-indigo-100 text-sm max-w-xl">
-                Need help with a tricky problem? Ask me! I will explain concepts simply, give hints, and guide you step-by-step without giving direct answers!
-              </p>
+        {/* ================= SECTION 4: AI TUTOR ================= */}
+        {currentSection === 'tutor' && (
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4">
+            <div className="border-b border-slate-100 pb-4">
+              <h2 className="text-base font-bold text-slate-900">AI Homework Helper</h2>
+              <p className="text-xs text-slate-500">Ask questions and receive child-friendly step-by-step guidance</p>
             </div>
 
-            {/* AI Helper Form */}
-            <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm max-w-2xl mx-auto">
-              <form onSubmit={handleAskAiHelper} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1.5">
-                    What question are you working on?
-                  </label>
-                  <textarea
-                    value={aiQuery}
-                    onChange={(e) => setAiQuery(e.target.value)}
-                    placeholder="e.g. How do I add 1/2 and 1/4? Or why do plants need sunlight?"
-                    className="w-full p-4 rounded-2xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 min-h-[100px]"
-                    required
-                  ></textarea>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isAskingAi}
-                  className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer text-xs"
-                >
-                  {isAskingAi ? (
-                    <div className="flex items-center gap-2">
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>AI Tutor is thinking...</span>
-                    </div>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" /> Ask AI Tutor For Hints & Guidance
-                    </>
-                  )}
-                </button>
-              </form>
-            </div>
-
-            {/* AI Response Display */}
-            {aiHelperResponse && (
-              <div className="bg-indigo-50/80 border-2 border-indigo-200 p-6 rounded-3xl shadow-sm max-w-2xl mx-auto space-y-3 animate-fade-in">
-                <div className="flex items-center gap-2 text-indigo-900 font-extrabold text-sm">
-                  <Sparkles className="w-5 h-5 text-indigo-600" /> AI Tutor Hint & Step-by-Step Guide
-                </div>
-                <p className="text-sm font-medium text-indigo-950 bg-white p-4 rounded-2xl border border-indigo-100 leading-relaxed whitespace-pre-line">
-                  {aiHelperResponse.answer}
-                </p>
-                <div className="text-xs text-indigo-700 font-bold flex items-center gap-1.5 mt-2">
-                  <span>Provided by {aiHelperResponse.provider}</span>
-                </div>
+            <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-100 text-xs text-blue-900 flex items-center justify-between">
+              <div>
+                <p className="font-bold">Ready to solve homework step-by-step!</p>
+                <p className="text-[11px] text-blue-700 mt-0.5">Click the button to open the full interactive tutoring dialog</p>
               </div>
-            )}
+              <button
+                onClick={() => setIsAiModalOpen(true)}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
+              >
+                Open AI Helper
+              </button>
+            </div>
           </div>
         )}
 
-        {/* TAB 5: AI VOICE TUTOR */}
-        {activeTab === 'voice-tutor' && (
-          <div className="space-y-6">
-            <div className="bg-gradient-to-r from-pink-500 via-rose-500 to-purple-600 text-white p-6 sm:p-8 rounded-3xl shadow-lg text-center">
-              <h2 className="text-3xl font-black mb-2">AI Voice Tutor 🎙️✨</h2>
-              <p className="text-pink-100 text-sm max-w-lg mx-auto mb-6">
-                Press the microphone button, speak your question out loud, and listen as the AI Tutor speaks back!
-              </p>
+        {/* ================= SECTION 5: VOICE TUTOR ================= */}
+        {currentSection === 'voice-tutor' && (
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4 text-center py-10">
+            <div className="w-16 h-16 rounded-full bg-pink-50 text-pink-600 flex items-center justify-center mx-auto mb-3 shadow-xs">
+              <Mic className="w-8 h-8" />
+            </div>
+            <h2 className="text-lg font-bold text-slate-900">AI Voice Tutor</h2>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Speak your question directly into the microphone. Your AI tutor will answer back aloud!
+            </p>
 
-              {/* Big Mic Button */}
+            <div className="pt-4">
               <button
                 onClick={handleStartVoiceTutor}
-                className={`w-24 h-24 rounded-full mx-auto flex items-center justify-center transition-all cursor-pointer shadow-xl ${
-                  isListening
-                    ? 'bg-rose-500 text-white ring-8 ring-rose-200 animate-pulse'
-                    : 'bg-white text-pink-600 hover:scale-105'
+                className={`px-6 py-3 rounded-2xl font-bold text-xs text-white shadow-md transition-all cursor-pointer ${
+                  isListeningVoice ? 'bg-rose-500 animate-pulse' : 'bg-pink-600 hover:bg-pink-700'
                 }`}
               >
-                <Mic className="w-10 h-10" />
+                {isListeningVoice ? 'Listening to your voice...' : '🎙️ Tap to Speak Question'}
               </button>
-              <p className="text-xs font-bold text-pink-100 mt-3">
-                {isListening ? 'Listening to your voice...' : 'Tap Mic to Speak'}
-              </p>
             </div>
 
-            {/* Voice Transcripts Display */}
             {voiceQuery && (
-              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm max-w-xl mx-auto space-y-4">
-                <div>
-                  <p className="text-xs font-bold text-slate-400 uppercase">You Asked:</p>
-                  <p className="text-sm font-extrabold text-slate-800">"{voiceQuery}"</p>
-                </div>
-                {voiceResponse && (
-                  <div className="p-4 bg-pink-50 border border-pink-200 rounded-2xl text-xs text-pink-900 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="font-bold flex items-center gap-1.5 text-pink-700">
-                        <Volume2 className="w-4 h-4" /> AI Voice Response (Gemini API):
-                      </p>
-                      <button
-                        onClick={() => {
-                          if ('speechSynthesis' in window) {
-                            window.speechSynthesis.cancel();
-                            const utterance = new SpeechSynthesisUtterance(voiceResponse);
-                            utterance.pitch = 1.2;
-                            utterance.rate = 0.95;
-                            window.speechSynthesis.speak(utterance);
-                          }
-                        }}
-                        className="px-3 py-1 bg-pink-600 hover:bg-pink-700 text-white font-bold rounded-xl text-[10px] shadow-xs cursor-pointer flex items-center gap-1"
-                      >
-                        <Volume2 className="w-3 h-3" /> Replay Voice
-                      </button>
-                    </div>
-                    <p className="font-medium leading-relaxed bg-white p-3 rounded-xl border border-pink-100">{voiceResponse}</p>
-                  </div>
-                )}
+              <div className="max-w-md mx-auto p-3 bg-slate-50 rounded-xl text-xs text-slate-700 mt-4 text-left">
+                <p className="font-bold text-slate-900 mb-1">You asked:</p>
+                <p>"{voiceQuery}"</p>
+              </div>
+            )}
+
+            {voiceResponse && (
+              <div className="max-w-md mx-auto p-3 bg-pink-50 border border-pink-100 rounded-xl text-xs text-pink-900 mt-3 text-left">
+                <p className="font-bold mb-1 flex items-center gap-1.5">
+                  <Volume2 className="w-3.5 h-3.5" /> AI Tutor Spoke:
+                </p>
+                <p>{voiceResponse}</p>
               </div>
             )}
           </div>
         )}
 
-        {/* TAB 6: QUIZZES */}
-        {activeTab === 'quizzes' && (
-          <div className="space-y-6">
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-              <h2 className="font-black text-slate-900 text-lg">Adaptive Quizzes</h2>
-              <p className="text-xs text-slate-500">Attempt quizzes, earn stars, and review recommended practice topics</p>
+        {/* ================= SECTION 6: QUIZZES ================= */}
+        {currentSection === 'quizzes' && (
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4">
+            <div className="border-b border-slate-100 pb-4">
+              <h2 className="text-base font-bold text-slate-900">Adaptive Practice Quizzes</h2>
+              <p className="text-xs text-slate-500">Test your skills and earn stars & coins</p>
             </div>
 
-            {/* Quiz Result Banner */}
-            {quizResult && (
-              <div className="bg-emerald-500 text-white p-6 rounded-3xl shadow-lg space-y-2 animate-fade-in">
-                <h3 className="text-2xl font-black">Quiz Completed! 🎉 Score: {quizResult.score}%</h3>
-                <p className="text-xs font-semibold">Correct Answers: {quizResult.correctCount} / {quizResult.totalQuestions}</p>
-                <div className="p-3 bg-white/20 backdrop-blur-md rounded-2xl text-xs font-medium">
-                  <strong>Recommended Revision:</strong> {quizResult.recommendedRevision}
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {quizzes.map((q) => (
-                <div key={q._id || q.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-black">
-                      {q.difficulty || 'Medium'} • {q.grade}
-                    </span>
-                    <span className="text-xs font-bold text-slate-500">{q.questions?.length || 0} Questions</span>
-                  </div>
-                  <h3 className="font-black text-slate-900 text-lg mb-1">{q.title}</h3>
-                  <p className="text-xs text-slate-500 mb-1">
-                    Subject: <span className="font-bold text-slate-700">{q.subject}</span> • Chapter: <span className="font-bold text-slate-700">{q.chapter || 'Ch. 1'}</span>
-                  </p>
-                  <p className="text-xs text-slate-500 mb-3">Topic: <span className="font-bold text-slate-700">{q.topic}</span></p>
-
-                  {q.sourceMaterialName && (
-                    <p className="text-[10px] text-indigo-600 font-bold mb-3">
-                      📄 Generated from source: {q.sourceMaterialName}
-                    </p>
-                  )}
-
-                  {/* Question Player */}
-                  <div className="space-y-3 pt-3 border-t border-slate-100">
-                    {q.questions?.map((ques: any, idx: number) => (
-                      <div key={idx} className="p-3 bg-slate-50 rounded-2xl text-xs space-y-2">
-                        <p className="font-bold text-slate-800">Q{idx + 1}: {ques.question}</p>
-                        {ques.options?.length > 0 ? (
-                          <div className="grid grid-cols-2 gap-1.5">
-                            {ques.options.map((opt: string) => (
-                              <button
-                                key={opt}
-                                type="button"
-                                onClick={() => setUserQuizAnswers({ ...userQuizAnswers, [idx]: opt })}
-                                className={`p-2 rounded-xl border text-left text-xs font-semibold transition-all cursor-pointer ${
-                                  userQuizAnswers[idx] === opt
-                                    ? 'bg-amber-400 text-amber-950 border-amber-500 font-black shadow-sm'
-                                    : 'bg-white border-slate-200 text-slate-700 hover:bg-amber-50'
-                                }`}
-                              >
-                                {opt}
-                              </button>
-                            ))}
-                          </div>
-                        ) : (
-                          <input
-                            type="text"
-                            placeholder="Type answer..."
-                            value={userQuizAnswers[idx] || ''}
-                            onChange={(e) => setUserQuizAnswers({ ...userQuizAnswers, [idx]: e.target.value })}
-                            className="w-full p-2 rounded-xl border border-slate-200 text-xs"
-                          />
-                        )}
-                      </div>
-                    ))}
-
-                    <button
-                      onClick={() => handleSubmitQuiz(q._id || q.id)}
-                      className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white font-black rounded-xl text-xs shadow-md mt-2 cursor-pointer"
-                    >
-                      Submit Quiz Answers Now
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 7: ACHIEVEMENTS */}
-        {activeTab === 'achievements' && (
-          <div className="space-y-6">
-            <div className="bg-gradient-to-r from-teal-600 to-emerald-600 text-white p-6 rounded-3xl shadow-lg flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-black">Achievements & Badges 🏆</h2>
-                <p className="text-teal-100 text-xs">Unlock shiny badges as you complete daily lessons and quizzes!</p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs text-teal-200 font-bold uppercase">Total Stars</p>
-                <p className="text-3xl font-black">⭐ {profile.stars}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              {achievements.map((ach) => (
-                <div
-                  key={ach.id}
-                  className={`p-6 rounded-3xl border shadow-sm text-center flex flex-col items-center justify-between ${
-                    ach.unlocked ? 'bg-white border-teal-200' : 'bg-slate-100 border-slate-200 opacity-60'
-                  }`}
-                >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {quizzes.map((quiz) => (
+                <div key={quiz._id || quiz.id} className="p-4 rounded-xl border border-slate-200 hover:border-amber-300 transition-all bg-white flex flex-col justify-between">
                   <div>
-                    <div className="text-4xl mb-3">{ach.icon}</div>
-                    <h3 className="font-black text-slate-900 text-base">{ach.title}</h3>
-                    <p className="text-xs text-slate-500 mt-1">{ach.description}</p>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="px-2 py-0.5 bg-amber-50 text-amber-800 text-[10px] font-bold rounded-md">{quiz.subject || 'Quiz'}</span>
+                      <span className="text-[10px] font-medium text-slate-400">{quiz.questions?.length || 3} Questions</span>
+                    </div>
+                    <h3 className="text-xs font-bold text-slate-900">{quiz.title}</h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">{quiz.topic || 'Fractions & Decimals'}</p>
                   </div>
-                  <div className="mt-4 pt-3 border-t border-slate-100 w-full text-xs font-bold text-teal-700">
-                    + {ach.starsReward} Stars | + {ach.coinsReward} Coins
+
+                  <button
+                    onClick={() => {
+                      setActiveQuiz(quiz);
+                      setUserQuizAnswers({});
+                      setQuizResult(null);
+                    }}
+                    className="mt-4 w-full py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer shadow-xs"
+                  >
+                    Start Quiz
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ================= SECTION 7: ACHIEVEMENTS ================= */}
+        {currentSection === 'achievements' && (
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4">
+            <div className="border-b border-slate-100 pb-4">
+              <h2 className="text-base font-bold text-slate-900">Achievements & Badges</h2>
+              <p className="text-xs text-slate-500">Badges earned through consistent daily study</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {achievements.map((ach) => (
+                <div key={ach.id} className="p-4 rounded-xl border border-slate-200 bg-white flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-100 flex items-center justify-center text-2xl shrink-0">
+                    {ach.icon || '⭐'}
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-900">{ach.title}</h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">{ach.description}</p>
+                    <span className="text-[10px] font-bold text-amber-700 mt-1 inline-block">+{ach.starsReward} Stars</span>
                   </div>
                 </div>
               ))}
             </div>
           </div>
         )}
-      </main>
 
-      {/* HOMEWORK SUBMISSION MODAL */}
-      {selectedHw && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl relative">
-            <button onClick={() => setSelectedHw(null)} className="absolute right-4 top-4 text-slate-400">
-              <X className="w-5 h-5" />
-            </button>
-            <h2 className="text-lg font-black text-slate-900 mb-2">Submit Homework: {selectedHw.title}</h2>
-            <textarea
-              value={homeworkTextAnswer}
-              onChange={(e) => setHomeworkTextAnswer(e.target.value)}
-              placeholder="Type your homework answer or steps here..."
-              className="w-full p-3 rounded-2xl border border-slate-200 text-sm min-h-[120px] mb-4"
-            ></textarea>
-            <button
-              onClick={() => handleSubmitHomeworkAnswer(selectedHw._id || selectedHw.id)}
-              className="w-full py-3 bg-emerald-600 text-white font-bold rounded-xl text-xs shadow-md"
-            >
-              Send Submission to Teacher
-            </button>
+        {/* ================= SECTION 8: SETTINGS ================= */}
+        {currentSection === 'settings' && (
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4 max-w-lg">
+            <div className="border-b border-slate-100 pb-4">
+              <h2 className="text-base font-bold text-slate-900">Student Preferences</h2>
+              <p className="text-xs text-slate-500">Your profile and learning grade settings</p>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Student Name</label>
+                <input type="text" readOnly value={user?.name || 'Leo Vance'} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800" />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Enrolled Grade</label>
+                <input type="text" readOnly value={profile.grade || 'Grade 4 - Alpha'} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800" />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ================= MODAL 1: WATCH YOUTUBE VIDEO ================= */}
+      {activeVideo && activeVideo.isOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-3xl overflow-hidden shadow-2xl border border-slate-200 flex flex-col">
+            <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="px-2 py-0.5 bg-red-600 text-white text-[10px] font-bold rounded-sm">YouTube</span>
+                <h3 className="font-bold text-xs sm:text-sm text-slate-100 line-clamp-1">{activeVideo.title}</h3>
+              </div>
+              <button onClick={() => setActiveVideo(null)} className="text-slate-400 hover:text-white p-1 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="relative aspect-video bg-black">
+              <iframe
+                src={getYouTubeEmbedUrl(activeVideo.videoId)}
+                title={activeVideo.title}
+                className="w-full h-full border-0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              ></iframe>
+            </div>
+
+            <div className="p-4 bg-slate-50 flex items-center justify-between text-xs text-slate-600">
+              <span className="font-bold text-slate-900">{activeVideo.subject} {activeVideo.chapter ? `• ${activeVideo.chapter}` : ''}</span>
+              <button onClick={() => setActiveVideo(null)} className="px-4 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 font-bold text-slate-700 cursor-pointer">
+                Close Player
+              </button>
+            </div>
           </div>
         </div>
       )}
-    </div>
+
+      {/* ================= MODAL 2: AI HOMEWORK HELPER & OCR ================= */}
+      {isAiModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-2xl h-[620px] max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-blue-50/50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900">AI Homework Helper</h3>
+                  <p className="text-[11px] text-slate-500">Step-by-step guidance & notebook OCR scanner</p>
+                </div>
+              </div>
+              <button onClick={() => setIsAiModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* OCR Bar */}
+            <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2">
+                <Camera className="w-4 h-4 text-blue-600" />
+                <span className="font-medium text-slate-700">Scan Notebook Page:</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="px-3 py-1 bg-white border border-slate-200 hover:border-blue-300 rounded-lg text-blue-600 font-bold text-xs cursor-pointer flex items-center gap-1.5 shadow-2xs">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Choose Image</span>
+                  <input type="file" accept="image/*" onChange={handleOcrFileSelect} className="hidden" />
+                </label>
+                {ocrFile && (
+                  <button
+                    onClick={handleProcessOcr}
+                    disabled={isScanningOcr}
+                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg cursor-pointer disabled:opacity-50"
+                  >
+                    {isScanningOcr ? 'Scanning...' : 'Scan & Solve'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {ocrPreviewUrl && (
+              <div className="p-3 bg-amber-50 border-b border-amber-200 flex items-center gap-3">
+                <img src={ocrPreviewUrl} alt="Preview" className="w-12 h-12 object-cover rounded-lg border border-amber-300" />
+                <div className="flex-1 text-xs">
+                  <p className="font-bold text-amber-900">{ocrFile?.name}</p>
+                  <p className="text-[11px] text-amber-700">Click "Scan & Solve" to extract handwriting!</p>
+                </div>
+                <button onClick={() => { setOcrFile(null); setOcrPreviewUrl(null); }} className="text-amber-800 font-bold text-xs">
+                  Remove
+                </button>
+              </div>
+            )}
+
+            {/* Chat Area */}
+            <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-slate-50/50">
+              {chatMessages.map((msg) => (
+                <div key={msg.id} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {msg.role === 'assistant' && (
+                    <div className="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0 text-xs font-bold shadow-xs">
+                      AI
+                    </div>
+                  )}
+
+                  <div className={`max-w-[85%] rounded-2xl p-4 text-xs ${
+                    msg.role === 'user'
+                      ? 'bg-blue-600 text-white font-medium rounded-tr-none'
+                      : 'bg-white border border-slate-200 text-slate-800 shadow-2xs rounded-tl-none space-y-3'
+                  }`}>
+                    <p className="whitespace-pre-wrap">{msg.text}</p>
+
+                    {msg.data && (
+                      <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+                        {msg.data.understandTheQuestion && (
+                          <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80">
+                            <span className="font-bold text-slate-700 block mb-0.5">🔍 Understand the Question</span>
+                            <span className="text-slate-600">{msg.data.understandTheQuestion}</span>
+                          </div>
+                        )}
+
+                        {msg.data.steps && msg.data.steps.length > 0 && (
+                          <div className="space-y-1.5">
+                            <span className="font-bold text-slate-700 block">🔢 Step-by-Step Solution:</span>
+                            {msg.data.steps.map((step, idx) => (
+                              <div key={idx} className="p-2 rounded-lg bg-blue-50/50 border border-blue-100 text-slate-700 font-medium">
+                                {step}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {msg.data.finalAnswer && (
+                          <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold">
+                            ✅ Final Answer: {msg.data.finalAnswer}
+                          </div>
+                        )}
+
+                        {msg.data.quickTip && (
+                          <div className="p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-medium">
+                            💡 {msg.data.quickTip}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {msg.role === 'user' && (
+                    <div className="w-7 h-7 rounded-lg bg-slate-700 text-white flex items-center justify-center shrink-0 text-xs font-bold shadow-xs">
+                      {(user?.name || 'L')[0]}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {isAiThinking && (
+                <div className="flex gap-3 justify-start items-center">
+                  <div className="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0 text-xs font-bold animate-pulse">
+                    AI
+                  </div>
+                  <div className="p-3 bg-white border border-slate-200 rounded-2xl rounded-tl-none text-xs text-slate-500 font-medium flex items-center gap-2 shadow-2xs">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                    <span>Thinking and preparing step-by-step solution...</span>
+                  </div>
+                </div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Input Bar */}
+            <div className="p-3 border-t border-slate-200 bg-white">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendAiMessage();
+                }}
+                className="flex items-center gap-2"
+              >
+                <input
+                  type="text"
+                  placeholder="Ask a question or follow-up (e.g. Why did you divide by 100?)..."
+                  value={aiInput}
+                  onChange={(e) => setAiInput(e.target.value)}
+                  disabled={isAiThinking}
+                  className="flex-1 px-4 py-2 text-xs bg-slate-100 border border-transparent rounded-xl focus:bg-white focus:border-blue-500 focus:outline-hidden text-slate-700"
+                />
+                <button
+                  type="submit"
+                  disabled={!aiInput.trim() || isAiThinking}
+                  className="p-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl transition-colors cursor-pointer"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL 3: SUBMIT HOMEWORK ================= */}
+      {selectedHw && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-800 rounded-md">
+                  {selectedHw.subject || 'Homework'}
+                </span>
+                <h3 className="font-bold text-sm text-slate-900 mt-1">{selectedHw.title}</h3>
+              </div>
+              <button onClick={() => setSelectedHw(null)} className="text-slate-400 hover:text-slate-600 p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-xl mb-4 text-xs text-slate-600">
+              <p className="font-bold text-slate-800 mb-1">Instructions:</p>
+              <p>{selectedHw.instructions || selectedHw.description || 'Complete the assignment and write your answer below.'}</p>
+            </div>
+
+            <div className="space-y-3">
+              <label className="block text-xs font-bold text-slate-700">Your Answer / Notes:</label>
+              <textarea
+                rows={5}
+                value={homeworkTextAnswer}
+                onChange={(e) => setHomeworkTextAnswer(e.target.value)}
+                placeholder="Type your homework solution, explanations, or answers here..."
+                className="w-full p-3 text-xs border border-slate-200 rounded-xl focus:border-blue-500 focus:outline-hidden"
+              ></textarea>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button onClick={() => setSelectedHw(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">
+                Cancel
+              </button>
+              <button
+                onClick={() => handleSubmitHomework(selectedHw._id || selectedHw.id)}
+                disabled={isSubmittingHw || !homeworkTextAnswer.trim()}
+                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs cursor-pointer"
+              >
+                {isSubmittingHw ? 'Submitting...' : 'Submit to Teacher'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL 4: TAKE QUIZ ================= */}
+      {activeQuiz && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-xl p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+              <div>
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-50 text-amber-800 rounded-md">
+                  {activeQuiz.subject || 'Quiz'}
+                </span>
+                <h3 className="font-bold text-sm text-slate-900 mt-1">{activeQuiz.title}</h3>
+              </div>
+              <button onClick={() => setActiveQuiz(null)} className="text-slate-400 hover:text-slate-600 p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {quizResult ? (
+              <div className="text-center py-6 space-y-4">
+                <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mx-auto text-2xl font-black">
+                  🎉
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">Quiz Completed!</h3>
+                  <p className="text-xs text-slate-500 mt-1">Your Score: {quizResult.score}% ({quizResult.correctCount}/{quizResult.totalQuestions} Correct)</p>
+                </div>
+                <div className="p-3 bg-amber-50 rounded-xl text-xs font-bold text-amber-900 inline-block">
+                  ⭐ Earned +{quizResult.starsEarned || 20} Stars & +{quizResult.coinsEarned || 50} Coins!
+                </div>
+                <div>
+                  <button onClick={() => setActiveQuiz(null)} className="px-6 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs">
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {(activeQuiz.questions || []).map((q: any, qIdx: number) => (
+                  <div key={qIdx} className="p-4 rounded-xl border border-slate-200/80 bg-slate-50/50 space-y-3">
+                    <p className="text-xs font-bold text-slate-800">{qIdx + 1}. {q.question || q.questionText}</p>
+                    <div className="space-y-1.5">
+                      {(q.options || []).map((opt: string, optIdx: number) => {
+                        const optLetter = typeof opt === 'string' && opt.length > 1 && opt[1] === ')' ? opt[0] : opt;
+                        const isSelected = userQuizAnswers[qIdx] === opt || userQuizAnswers[qIdx] === optLetter;
+                        return (
+                          <label
+                            key={optIdx}
+                            className={`flex items-center gap-2.5 p-2.5 rounded-lg border text-xs cursor-pointer transition-all ${
+                              isSelected ? 'bg-blue-50 border-blue-500 text-blue-900 font-bold' : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name={`question-${qIdx}`}
+                              checked={isSelected}
+                              onChange={() => setUserQuizAnswers((prev) => ({ ...prev, [qIdx]: opt }))}
+                              className="w-3.5 h-3.5 text-blue-600"
+                            />
+                            <span>{opt}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                  <button onClick={() => setActiveQuiz(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleSubmitQuiz(activeQuiz._id || activeQuiz.id)}
+                    disabled={isSubmittingQuiz}
+                    className="px-6 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-xs cursor-pointer disabled:opacity-50"
+                  >
+                    {isSubmittingQuiz ? 'Evaluating...' : 'Submit Answers'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </DashboardLayout>
   );
 };

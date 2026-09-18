@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
@@ -27,11 +28,13 @@ const protect = async (req, res, next) => {
       process.env.JWT_SECRET || 'eduspark_secret_key_2026_super_secure'
     );
 
-    // Try MongoDB first if connected, otherwise fallback to in-memory store
-    try {
-      req.user = await User.findById(decoded.id).select('-password');
-    } catch (e) {
-      req.user = null;
+    // Try MongoDB first if connected and valid ObjectId, otherwise fallback to in-memory store
+    if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(decoded.id)) {
+      try {
+        req.user = await User.findById(decoded.id).select('-password');
+      } catch (e) {
+        req.user = null;
+      }
     }
 
     if (!req.user) {

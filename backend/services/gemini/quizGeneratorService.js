@@ -61,7 +61,7 @@ exports.generateQuiz = async (params) => {
     sourceMaterialName = '',
   } = params || {};
 
-  // 1. Fetch last 20 questions from DB for deduplication context
+  // 1. Fetch last 20 questions from DB or memoryStore for deduplication context
   let existingQuestions = [];
   try {
     const recentQuizzes = await Quiz.find({ subject, topic }).sort({ createdAt: -1 }).limit(5).lean();
@@ -71,7 +71,19 @@ exports.generateQuiz = async (params) => {
       }
     }
   } catch (err) {
-    console.warn('Failed to fetch existing quizzes for deduplication:', err.message);
+    // fallback to memoryStore
+  }
+
+  if (existingQuestions.length === 0) {
+    const memoryStore = require('../../utils/memoryStore');
+    const recentMem = (memoryStore.quizzes || [])
+      .filter((q) => (!subject || q.subject === subject) && (!topic || q.topic === topic))
+      .slice(0, 5);
+    for (const qz of recentMem) {
+      if (qz.questions) {
+        existingQuestions.push(...qz.questions);
+      }
+    }
   }
 
   // 2. Build Subject Specific Prompt

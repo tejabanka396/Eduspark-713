@@ -6,6 +6,9 @@ const memoryStore = require('../utils/memoryStore');
 const aiService = require('../services/aiService');
 const ocrService = require('../services/ocrService');
 
+const homeworkHelper = require('../services/gemini/homeworkHelperService');
+const { extractYouTubeVideoId } = require('../utils/youtubeValidator');
+
 // @desc    Get Student Dashboard Overview & Gamification Data
 // @route   GET /api/student/dashboard
 // @access  Private (Student)
@@ -15,20 +18,51 @@ exports.getStudentDashboardData = async (req, res) => {
     let hwList = [];
     let quizList = [];
     const studentGrade = req.user?.grade || 'Grade 4';
+    const studentClass = req.user?.assignedClass || 'Grade 4 - Alpha';
+
+    const lessonFilter = {
+      $or: [
+        { grade: studentGrade },
+        { className: studentClass },
+        { className: studentGrade },
+      ],
+    };
 
     try {
-      lessonsList = await Lesson.find({ grade: studentGrade }).sort({ createdAt: -1 });
+      lessonsList = await Lesson.find(lessonFilter).sort({ createdAt: -1 });
       hwList = await Homework.find({ grade: studentGrade }).sort({ createdAt: -1 });
       quizList = await Quiz.find({ grade: studentGrade }).sort({ createdAt: -1 });
     } catch (e) {
-      lessonsList = memoryStore.lessons.filter((l) => l.grade === studentGrade);
-      hwList = memoryStore.homeworks.filter((h) => h.grade === studentGrade);
-      quizList = memoryStore.quizzes.filter((q) => q.grade === studentGrade);
+      lessonsList = (memoryStore.lessons || []).filter(
+        (l) =>
+          (l.grade || '').toLowerCase() === studentGrade.toLowerCase() ||
+          (l.className || '').toLowerCase() === studentClass.toLowerCase()
+      );
+      hwList = (memoryStore.homeworks || []).filter((h) => (h.grade || '').toLowerCase() === studentGrade.toLowerCase());
+      quizList = (memoryStore.quizzes || []).filter((q) => (q.grade || '').toLowerCase() === studentGrade.toLowerCase());
     }
 
-    if (!lessonsList.length) lessonsList = memoryStore.lessons.filter((l) => l.grade === studentGrade);
-    if (!hwList.length) hwList = memoryStore.homeworks.filter((h) => h.grade === studentGrade);
-    if (!quizList.length) quizList = memoryStore.quizzes.filter((q) => q.grade === studentGrade);
+    if (!lessonsList.length) {
+      lessonsList = (memoryStore.lessons || []).filter(
+        (l) =>
+          (l.grade || '').toLowerCase() === studentGrade.toLowerCase() ||
+          (l.className || '').toLowerCase() === studentClass.toLowerCase()
+      );
+    }
+    if (!hwList.length) hwList = (memoryStore.homeworks || []).filter((h) => (h.grade || '').toLowerCase() === studentGrade.toLowerCase());
+    if (!quizList.length) quizList = (memoryStore.quizzes || []).filter((q) => (q.grade || '').toLowerCase() === studentGrade.toLowerCase());
+
+    // Normalize lessons with videoId and thumbnail
+    const normalizedLessons = lessonsList.map((item) => {
+      const doc = item.toObject ? item.toObject() : { ...item };
+      if (doc.youtubeUrl && !doc.youtubeVideoId) {
+        doc.youtubeVideoId = extractYouTubeVideoId(doc.youtubeUrl);
+      }
+      if (doc.youtubeVideoId && !doc.thumbnail) {
+        doc.thumbnail = `https://img.youtube.com/vi/${doc.youtubeVideoId}/hqdefault.jpg`;
+      }
+      return doc;
+    });
 
     let attendanceLog = [];
     try {
@@ -37,18 +71,19 @@ exports.getStudentDashboardData = async (req, res) => {
     } catch (e) {}
 
     const studentProfile = {
-      name: req.user?.name || 'Leo Vance',
+      name: req.user?.name || 'Aarav Sharma',
       grade: studentGrade,
+      assignedClass: studentClass,
       streak: req.user?.streak || 5,
       stars: req.user?.stars || 140,
-      coins: req.user?.coins || 250,
+      coins: req.user?.coins || 320,
       dailyMotivation: '🌟 "Small steps every day lead to big achievements! Keep up the great learning!"',
     };
 
     res.status(200).json({
       success: true,
       profile: studentProfile,
-      lessons: lessonsList,
+      lessons: normalizedLessons,
       homeworks: hwList,
       quizzes: quizList,
       attendance: attendanceLog,
@@ -60,31 +95,46 @@ exports.getStudentDashboardData = async (req, res) => {
   }
 };
 
-// @desc    AI Homework Helper (NEVER gives direct answers - Powered by Gemini API)
+// @desc    AI Homework Helper (Educational Step-by-Step Guidance with Conversational Context)
 // @route   POST /api/student/ai-helper
 // @access  Private (Student)
 exports.aiHomeworkHelper = async (req, res) => {
   try {
-    const { question, grade } = req.body;
+    const { question, grade, history, previousContext, subject } = req.body;
 
-    if (!question) {
+    if (!question || !question.trim()) {
       return res.status(400).json({ success: false, message: 'Please enter your homework question.' });
     }
 
-    const aiResult = await aiService.generateHomeworkHint(question, grade || 'Grade 4');
+    const targetGrade = grade || req.user?.grade || 'Grade 4';
+    const targetSubject = subject || 'Mathematics';
+
+    const result = await homeworkHelper.solveHomework({
+      questionText: question.trim(),
+      studentClass: targetGrade,
+      subject: targetSubject,
+      history: Array.isArray(history) ? history : [],
+      previousContext: previousContext || '',
+    });
 
     res.status(200).json({
       success: true,
       question,
+      data: result,
       aiResponse: {
-        hint: aiResult.hint,
-        encouragement: aiResult.encouragement || '🌟 Think step by step!',
-        provider: aiResult.provider,
-        ruleEnforced: 'AI Tutor gives hints and guidance only — no direct answers!',
+        understandTheQuestion: result.understandTheQuestion,
+        steps: result.steps || result.stepByStepSolution,
+        stepByStepSolution: result.stepByStepSolution || result.steps,
+        finalAnswer: result.finalAnswer,
+        quickTip: result.quickTip,
+        explanation: result.explanation,
+        provider: result.provider,
+        ruleEnforced: 'AI Tutor gives structured step-by-step guidance!',
       },
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'AI Homework Helper error.' });
+    console.error('AI Homework Helper error:', error);
+    res.status(500).json({ success: false, message: 'AI Homework Helper error: ' + error.message });
   }
 };
 
@@ -99,7 +149,7 @@ exports.aiVoiceTutor = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Voice input not received.' });
     }
 
-    const aiVoice = await aiService.generateVoiceTutorResponse(voiceQuestion, grade || 'Grade 4');
+    const aiVoice = await aiService.generateVoiceTutorResponse(voiceQuestion, grade || req.user?.grade || 'Grade 4');
 
     res.status(200).json({
       success: true,
@@ -112,20 +162,40 @@ exports.aiVoiceTutor = async (req, res) => {
   }
 };
 
-// @desc    OCR Homework Scanner (Powered by Google Vision API)
+// @desc    OCR Homework Scanner (Powered by Gemini Multimodal Vision / Google Vision)
 // @route   POST /api/student/ocr-scan
 // @access  Private (Student)
 exports.ocrScanNotebook = async (req, res) => {
   try {
-    const { imageUrl } = req.body;
-    const ocrResult = await ocrService.extractHandwrittenText(imageUrl || 'sample_notebook.jpg');
+    let imageInput = req.body.imageDataBase64 || req.body.imageUrl || '';
+    const mimeType = req.body.mimeType || 'image/jpeg';
+
+    if (req.file) {
+      imageInput = req.file.buffer;
+    }
+
+    const ocrResult = await ocrService.extractHandwrittenText(imageInput, mimeType);
+
+    // Automatically solve extracted question using Homework Helper
+    let solution = null;
+    if (ocrResult.extractedText && ocrResult.extractedText !== 'No text detected.') {
+      try {
+        solution = await homeworkHelper.solveHomework({
+          questionText: ocrResult.extractedText,
+          studentClass: req.user?.grade || 'Grade 4',
+        });
+      } catch (e) {}
+    }
 
     res.status(200).json({
       success: true,
       ocrResult,
+      extractedText: ocrResult.extractedText,
+      solution,
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'OCR scan error.' });
+    console.error('OCR scan error:', error);
+    res.status(500).json({ success: false, message: 'OCR scan error: ' + error.message });
   }
 };
 

@@ -8,6 +8,8 @@ const Quiz = require('../models/Quiz');
 const Attendance = require('../models/Attendance');
 const memoryStore = require('../utils/memoryStore');
 const aiService = require('../services/aiService');
+const { validateYouTubeUrl, extractYouTubeVideoId } = require('../utils/youtubeValidator');
+const { getTeacherCurriculumOptions, validateTeacherCurriculumSelection, normalizeGrade } = require('../utils/curriculumData');
 
 // @desc    Get Teacher Overview Stats & Alerts
 // @route   GET /api/teacher/stats
@@ -60,7 +62,19 @@ exports.getTeacherStats = async (req, res) => {
 };
 
 /* ==========================================
-   LESSON MANAGEMENT
+   CURRICULUM & ASSIGNMENTS
+   ========================================== */
+exports.getTeacherCurriculum = async (req, res) => {
+  try {
+    const options = getTeacherCurriculumOptions(req.user);
+    res.status(200).json({ success: true, ...options });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to fetch curriculum options.' });
+  }
+};
+
+/* ==========================================
+   LESSON & VIDEO MANAGEMENT
    ========================================== */
 exports.getLessons = async (req, res) => {
   try {
@@ -83,134 +97,326 @@ exports.getLessons = async (req, res) => {
       lessonsList = memoryStore.lessons;
     }
     if (!lessonsList.length && !isTeacher) lessonsList = memoryStore.lessons;
-    res.status(200).json({ success: true, count: lessonsList.length, data: lessonsList });
+
+    // Ensure all lessons have videoId and thumbnail populated if youtubeUrl exists
+    const normalized = lessonsList.map((item) => {
+      const doc = item.toObject ? item.toObject() : { ...item };
+      if (doc.youtubeUrl && !doc.youtubeVideoId) {
+        doc.youtubeVideoId = extractYouTubeVideoId(doc.youtubeUrl);
+      }
+      if (doc.youtubeVideoId && !doc.thumbnail) {
+        doc.thumbnail = `https://img.youtube.com/vi/${doc.youtubeVideoId}/hqdefault.jpg`;
+      }
+      return doc;
+    });
+
+    res.status(200).json({ success: true, count: normalized.length, data: normalized });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Failed to fetch lessons.' });
   }
 };
 
-exports.createLesson = async (req, res) => {
+exports.createVideo = async (req, res) => {
   try {
-    const { title, description, grade, subject, category, contentType, fileUrl, youtubeUrl } = req.body;
-    if (!title || !description) {
-      return res.status(400).json({ success: false, message: 'Title and description required.' });
-    }
-    // Convert standard YouTube URLs to embed format if needed
-    let embedUrl = '';
-    if (youtubeUrl && typeof youtubeUrl === 'string' && youtubeUrl.trim() !== '') {
-      const idMatch = youtubeUrl.match(/(?:youtu\.be\/|v=|\/embed\/|watch\?v=)([^&\n?#]+)/);
-      const videoId = idMatch ? idMatch[1] : null;
-      embedUrl = videoId ? `https://www.youtube.com/embed/${videoId}` : youtubeUrl;
+    const {
+      title,
+      description,
+      youtube_url,
+      youtubeUrl,
+      class_id,
+      className,
+      grade,
+      subject_id,
+      subject,
+      chapter_id,
+      chapter,
+      topic_id,
+      topic,
+      contentType,
+      category,
+    } = req.body;
+
+    const rawUrl = youtube_url || youtubeUrl;
+    const reqClass = className || class_id || grade || req.user?.assignedClass || 'Grade 4 - Alpha';
+    const reqGrade = normalizeGrade(reqClass);
+    const reqSubject = subject || subject_id || (req.user?.subjects && req.user.subjects[0]) || 'Mathematics';
+    const reqChapter = chapter || chapter_id;
+    const reqTopic = topic || topic_id;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ success: false, message: 'Video title is required.' });
     }
 
+    if (!rawUrl || !rawUrl.trim()) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid YouTube video URL.' });
+    }
+
+    // 1. Validate YouTube URL
+    const ytValidation = validateYouTubeUrl(rawUrl);
+    if (!ytValidation.isValid) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid YouTube video URL.' });
+    }
+
+    // 2. Validate Teacher Authorization (Hierarchy: Teacher -> Assigned Class -> Assigned Subject -> Valid Chapter -> Valid Topic)
+    const authCheck = validateTeacherCurriculumSelection(req.user, {
+      className: reqClass,
+      grade: reqGrade,
+      subject: reqSubject,
+      chapter: reqChapter,
+      topic: reqTopic,
+    });
+
+    if (!authCheck.isValid) {
+      return res.status(authCheck.status || 403).json({
+        success: false,
+        message: authCheck.message,
+      });
+    }
+
+    const teacherId = req.user?._id || req.user?.id;
+    const teacherName = req.user?.name || 'Prof. John Keating';
+
+    // 3. Duplicate Prevention (Class + Subject + Chapter + Topic + same YouTube video)
+    let isDuplicate = false;
     try {
-      const lesson = await Lesson.create({
-        title,
-        description,
-        grade: grade || 'Grade 4',
-        subject: subject || 'Mathematics',
-        category: category || 'daily',
-        contentType: contentType || 'video',
-        fileUrl: fileUrl || '',
-        youtubeUrl: embedUrl,
-        teacherId: req.user?._id || req.user?.id,
-        teacherName: req.user?.name || 'Prof. John Keating',
+      const existing = await Lesson.findOne({
+        youtubeVideoId: ytValidation.videoId,
+        subject: reqSubject,
+        chapter: reqChapter,
+        topic: reqTopic,
+        $or: [{ className: reqClass }, { grade: reqGrade }],
       });
-      return res.status(201).json({ success: true, message: 'Lesson created successfully!', data: lesson });
+      if (existing) isDuplicate = true;
     } catch (dbErr) {
-      const memLesson = memoryStore.saveLesson({
-        title,
-        description,
-        grade: grade || 'Grade 4',
-        subject: subject || 'Mathematics',
-        category: category || 'daily',
-        contentType: contentType || 'video',
-        fileUrl: fileUrl || '',
-        youtubeUrl: embedUrl,
-        teacherId: req.user?._id || req.user?.id,
-        teacherName: req.user?.name || 'Prof. John Keating',
+      // check memoryStore
+      const memExisting = (memoryStore.lessons || []).find((l) => {
+        const matchVideo = l.youtubeVideoId === ytValidation.videoId;
+        const matchClass = (l.className || l.grade || '').toLowerCase() === reqClass.toLowerCase() || (l.grade || '').toLowerCase() === reqGrade.toLowerCase();
+        const matchSubj = (l.subject || '').toLowerCase() === reqSubject.toLowerCase();
+        const matchChap = (l.chapter || '').toLowerCase() === (reqChapter || '').toLowerCase();
+        const matchTop = (l.topic || '').toLowerCase() === (reqTopic || '').toLowerCase();
+        return matchVideo && matchClass && matchSubj && matchChap && matchTop;
       });
-      return res.status(201).json({ success: true, message: 'Lesson created (Demo mode)!', data: memLesson });
+      if (memExisting) isDuplicate = true;
+    }
+
+    if (isDuplicate) {
+      return res.status(400).json({
+        success: false,
+        message: 'This YouTube video has already been added to this topic.',
+      });
+    }
+
+    // 4. Save Video Record
+    const videoPayload = {
+      title: title.trim(),
+      description: (description || '').trim(),
+      grade: reqGrade,
+      className: reqClass,
+      classId: class_id || '',
+      subject: reqSubject,
+      subjectId: subject_id || '',
+      chapter: reqChapter,
+      chapterId: chapter_id || '',
+      topic: reqTopic,
+      topicId: topic_id || '',
+      contentType: contentType || 'video',
+      category: category || 'daily',
+      youtubeUrl: ytValidation.embedUrl,
+      youtubeVideoId: ytValidation.videoId,
+      thumbnail: ytValidation.thumbnailUrl,
+      teacherId,
+      teacherName,
+    };
+
+    try {
+      const savedLesson = await Lesson.create(videoPayload);
+      return res.status(201).json({
+        success: true,
+        message: 'YouTube video added successfully!',
+        data: savedLesson,
+      });
+    } catch (dbErr) {
+      try {
+        const memLesson = memoryStore.saveLesson(videoPayload);
+        return res.status(201).json({
+          success: true,
+          message: 'YouTube video added successfully!',
+          data: memLesson,
+        });
+      } catch (memErr) {
+        if (memErr.code === 'DUPLICATE_VIDEO') {
+          return res.status(400).json({
+            success: false,
+            message: 'This YouTube video has already been added to this topic.',
+          });
+        }
+        throw memErr;
+      }
     }
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error creating lesson.' });
+    console.error('Error creating video:', error);
+    res.status(500).json({ success: false, message: error.message || 'Error creating video.' });
   }
+};
+
+exports.createLesson = exports.createVideo;
+
+exports.updateVideo = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      title,
+      description,
+      youtube_url,
+      youtubeUrl,
+      class_id,
+      className,
+      grade,
+      subject_id,
+      subject,
+      chapter_id,
+      chapter,
+      topic_id,
+      topic,
+    } = req.body;
+
+    let target = null;
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      try {
+        target = await Lesson.findById(id);
+      } catch (e) {}
+    }
+    if (!target) {
+      target = (memoryStore.lessons || []).find((l) => l.id === id || l._id === id);
+    }
+
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'Video not found.' });
+    }
+
+    // Ownership check
+    if (req.user && req.user.role !== 'admin') {
+      const isOwner =
+        (target.teacherId && String(target.teacherId) === String(req.user._id || req.user.id)) ||
+        target.teacherName === req.user.name;
+      if (!isOwner) {
+        return res.status(403).json({ success: false, message: 'Not authorized to edit this video.' });
+      }
+    }
+
+    const updates = {};
+    if (title) updates.title = title.trim();
+    if (description !== undefined) updates.description = description.trim();
+    if (className) updates.className = className;
+    if (grade) updates.grade = normalizeGrade(grade);
+    if (subject) updates.subject = subject;
+    if (chapter) updates.chapter = chapter;
+    if (topic) updates.topic = topic;
+
+    const rawUrl = youtube_url || youtubeUrl;
+    if (rawUrl) {
+      const ytVal = validateYouTubeUrl(rawUrl);
+      if (!ytVal.isValid) {
+        return res.status(400).json({ success: false, message: 'Please enter a valid YouTube video URL.' });
+      }
+      updates.youtubeUrl = ytVal.embedUrl;
+      updates.youtubeVideoId = ytVal.videoId;
+      updates.thumbnail = ytVal.thumbnailUrl;
+    }
+
+    let updated = null;
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      try {
+        updated = await Lesson.findByIdAndUpdate(id, updates, { new: true });
+      } catch (e) {}
+    }
+    if (!updated) {
+      updated = memoryStore.updateLesson(id, updates);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Video updated successfully.',
+      data: updated,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error updating video.' });
+  }
+};
+
+exports.deleteVideo = async (req, res) => {
+  return exports.deleteLesson(req, res);
 };
 
 exports.deleteLesson = async (req, res) => {
   try {
     const { id } = req.params;
     if (!id) {
-      return res.status(400).json({ success: false, message: 'Lesson ID is required for deletion.' });
+      return res.status(400).json({ success: false, message: 'ID is required for deletion.' });
     }
 
     let deletedFromDb = false;
     let targetLesson = null;
 
-    // 1. Try finding and deleting from MongoDB if valid ObjectId
     if (mongoose.Types.ObjectId.isValid(id)) {
       try {
         targetLesson = await Lesson.findById(id);
         if (targetLesson) {
-          // Teacher ownership check
           if (req.user && req.user.role !== 'admin') {
             const userSubjects = req.user.subjects || (req.user.subject ? [req.user.subject] : []);
-            const isOwner = targetLesson.teacherName === req.user.name || userSubjects.includes(targetLesson.subject);
-            if (!isOwner && targetLesson.teacherName && req.user.name && targetLesson.teacherName !== req.user.name) {
-              return res.status(403).json({ success: false, message: 'Not authorized to delete another teacher\'s lesson.' });
+            const isOwner =
+              (targetLesson.teacherId && String(targetLesson.teacherId) === String(req.user._id || req.user.id)) ||
+              targetLesson.teacherName === req.user.name ||
+              userSubjects.includes(targetLesson.subject);
+            if (!isOwner) {
+              return res.status(403).json({ success: false, message: 'Not authorized to delete this video.' });
             }
           }
 
-          // If local file exists, remove from storage
           if (targetLesson.fileUrl && typeof targetLesson.fileUrl === 'string' && !targetLesson.fileUrl.startsWith('http')) {
             const localFilePath = path.join(__dirname, '..', targetLesson.fileUrl);
             if (fs.existsSync(localFilePath)) {
               try {
                 fs.unlinkSync(localFilePath);
-              } catch (unlinkErr) {
-                console.warn('[Delete Lesson] Could not unlink local file:', unlinkErr.message);
-              }
+              } catch (unlinkErr) {}
             }
           }
 
           await Lesson.findByIdAndDelete(id);
           deletedFromDb = true;
         }
-      } catch (dbErr) {
-        console.warn('[Delete Lesson] Database deletion notice:', dbErr.message);
-      }
+      } catch (dbErr) {}
     }
 
-    // 2. Also remove from memoryStore if present or fallback mode
     const memoryDeleted = memoryStore.deleteLesson(id);
 
     if (deletedFromDb || memoryDeleted) {
       return res.status(200).json({
         success: true,
-        message: 'Lesson deleted successfully.',
+        message: 'Video deleted successfully.',
         deletedId: id,
       });
     }
 
-    // If ID was not found in DB or memoryStore, check if lesson exists in memory list by loose match
-    const fallbackIdx = memoryStore.lessons.findIndex((l) => (l._id || l.id) === id);
+    const fallbackIdx = (memoryStore.lessons || []).findIndex((l) => (l._id || l.id) === id);
     if (fallbackIdx !== -1) {
       memoryStore.lessons.splice(fallbackIdx, 1);
       return res.status(200).json({
         success: true,
-        message: 'Lesson deleted successfully.',
+        message: 'Video deleted successfully.',
         deletedId: id,
       });
     }
 
     return res.status(200).json({
       success: true,
-      message: 'Lesson deleted successfully.',
+      message: 'Video deleted successfully.',
       deletedId: id,
     });
   } catch (error) {
     console.error('Error in deleteLesson controller:', error);
-    return res.status(500).json({ success: false, message: error.message || 'Failed to delete lesson.' });
+    return res.status(500).json({ success: false, message: error.message || 'Failed to delete video.' });
   }
 };
 

@@ -22,12 +22,22 @@ const memoryLessons = [
     title: 'Understanding Equivalent Fractions',
     description: 'Learn how to visualize and calculate equivalent fractions with fun pie diagrams.',
     grade: 'Grade 4',
+    className: 'Grade 4 - Alpha',
+    classId: 'class-001',
     subject: 'Mathematics',
+    subjectId: 'subj-1',
+    chapter: 'Chapter 1: Fractions & Decimals',
+    chapterId: 'ch-1',
+    topic: 'Equivalent Fractions',
+    topicId: 'top-1',
     category: 'daily',
     contentType: 'video',
     youtubeUrl: 'https://www.youtube.com/embed/n0FQSx012N8',
+    youtubeVideoId: 'n0FQSx012N8',
+    thumbnail: 'https://img.youtube.com/vi/n0FQSx012N8/hqdefault.jpg',
     teacherName: 'Prof. John Keating',
     createdAt: new Date(),
+    updatedAt: new Date(),
   },
   {
     _id: 'lesson-002',
@@ -35,12 +45,20 @@ const memoryLessons = [
     title: 'Photosynthesis & Plant Life Cycle',
     description: 'Weekly concept covering how green plants produce oxygen and food from sunlight.',
     grade: 'Grade 4',
+    className: 'Grade 4 - Alpha',
+    classId: 'class-001',
     subject: 'Science',
+    subjectId: 'subj-2',
+    chapter: 'Chapter 1: Plants and Their Parts',
+    chapterId: 'ch-sci-1',
+    topic: 'Photosynthesis and Chlorophyll',
+    topicId: 'top-sci-1',
     category: 'weekly',
     contentType: 'pdf',
     fileUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
     teacherName: 'Prof. John Keating',
     createdAt: new Date(),
+    updatedAt: new Date(),
   },
 ];
 
@@ -116,9 +134,8 @@ const memoryAchievements = [
 
 const memoryBookmarks = ['lesson-001'];
 
-const initDemoUsers = async () => {
-  const salt = await bcrypt.genSalt(10);
-  const defaultPasswordHash = await bcrypt.hash('password123', salt);
+const initDemoUsers = () => {
+  const defaultPasswordHash = bcrypt.hashSync('password123', 10);
 
   const demoAccounts = [
     {
@@ -138,6 +155,11 @@ const initDemoUsers = async () => {
       password: defaultPasswordHash,
       role: 'teacher',
       isVerified: true,
+      subject: 'Mathematics',
+      subjects: ['Mathematics', 'Science'],
+      grade: 'Grade 4',
+      grades: ['Grade 4', 'Grade 5'],
+      assignedClass: 'Grade 4 - Alpha',
     },
     {
       _id: 'demo-parent-id-003',
@@ -228,16 +250,55 @@ module.exports = {
     return null;
   },
   saveLesson: (lessonData) => {
+    // Prevent duplicate YouTube videos for same Class + Subject + Chapter + Topic
+    if (lessonData.youtubeVideoId) {
+      const isDuplicate = memoryLessons.some((l) => {
+        const matchVideo = l.youtubeVideoId === lessonData.youtubeVideoId;
+        const matchClass = (l.className || l.grade || '').toLowerCase() === (lessonData.className || lessonData.grade || '').toLowerCase();
+        const matchSubj = (l.subject || '').toLowerCase() === (lessonData.subject || '').toLowerCase();
+        const matchChap = (l.chapter || '').toLowerCase() === (lessonData.chapter || '').toLowerCase();
+        const matchTop = (l.topic || '').toLowerCase() === (lessonData.topic || '').toLowerCase();
+        return matchVideo && matchClass && matchSubj && matchChap && matchTop;
+      });
+      if (isDuplicate) {
+        const error = new Error('This YouTube video has already been added to this topic.');
+        error.code = 'DUPLICATE_VIDEO';
+        throw error;
+      }
+    }
+
     const id = lessonData.id || lessonData._id || 'lesson-' + Date.now();
     const newLesson = {
       _id: id,
       id,
+      className: lessonData.className || lessonData.grade || 'Grade 4 - Alpha',
+      classId: lessonData.classId || 'class-001',
+      subject: lessonData.subject || 'Mathematics',
+      subjectId: lessonData.subjectId || 'subj-1',
+      chapter: lessonData.chapter || 'Chapter 1: Fractions & Decimals',
+      chapterId: lessonData.chapterId || 'ch-1',
+      topic: lessonData.topic || 'Basic Fractions',
+      topicId: lessonData.topicId || 'top-1',
+      youtubeVideoId: lessonData.youtubeVideoId || '',
+      thumbnail: lessonData.thumbnail || (lessonData.youtubeVideoId ? `https://img.youtube.com/vi/${lessonData.youtubeVideoId}/hqdefault.jpg` : ''),
       createdAt: new Date(),
       updatedAt: new Date(),
       ...lessonData,
     };
     memoryLessons.unshift(newLesson);
     return newLesson;
+  },
+  updateLesson: (id, updateData) => {
+    const idx = memoryLessons.findIndex((l) => l.id === id || l._id === id);
+    if (idx >= 0) {
+      memoryLessons[idx] = {
+        ...memoryLessons[idx],
+        ...updateData,
+        updatedAt: new Date(),
+      };
+      return memoryLessons[idx];
+    }
+    return null;
   },
   deleteLesson: (id) => {
     const idx = memoryLessons.findIndex((l) => l.id === id || l._id === id);

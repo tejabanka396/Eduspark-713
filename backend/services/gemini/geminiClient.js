@@ -31,10 +31,9 @@ const generateText = async (prompt, systemInstruction = '', modelName = null) =>
   const modelList = modelName 
     ? [modelName] 
     : [
-        process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-        'gemini-flash-latest',
-        'gemini-3.8-flash',
-        'gemini-2.5-pro',
+        process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'gemini-1.5-flash',
       ];
 
   let lastError = null;
@@ -95,10 +94,9 @@ const generateMultimodal = async (prompt, mimeType, base64Data, systemInstructio
   const modelList = modelName 
     ? [modelName] 
     : [
-        process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-        'gemini-flash-latest',
-        'gemini-3.8-flash',
-        'gemini-2.5-pro',
+        process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'gemini-1.5-flash',
       ];
 
   let lastError = null;
